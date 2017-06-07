@@ -92,7 +92,7 @@ static int stm32_pin_configure(int pin, int func, int altf)
 int _pinmux_stm32_set(u32_t pin, u32_t func,
 				struct device *clk)
 {
-	int config;
+	int config = 0;
 
 	/* make sure to enable port clock first */
 	if (enable_port(STM32_PORT(pin), clk)) {
@@ -100,9 +100,10 @@ int _pinmux_stm32_set(u32_t pin, u32_t func,
 	}
 
 	/* determine config for alternate function */
-	config = stm32_get_pin_config(pin, func);
+	// config = stm32_get_pin_config(pin, func);
 
-	return stm32_pin_configure(pin, config, func);
+	// return stm32_pin_configure(pin, config, func);
+	return stm32_pin_configure(pin, func, func & STM32_AFR_MASK);
 }
 
 /**
@@ -121,6 +122,7 @@ void stm32_setup_pins(const struct pin_config *pinconf,
 
 	for (i = 0; i < pins; i++) {
 		_pinmux_stm32_set(pinconf[i].pin_num,
-				  pinconf[i].mode, clk);
+				  pinconf[i].mode,
+				  clk);
 	}
 }
