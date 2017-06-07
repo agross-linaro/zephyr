@@ -20,32 +20,31 @@
 #include <device.h>
 #include "soc.h"
 #include "soc_registers.h"
-#include "soc_pinmux.h"
 #include <gpio.h>
 #include <gpio/gpio_stm32.h>
 
 
-
-enum {
-	STM32L4X_MODER_INPUT_MODE	= 0x0,
-	STM32L4X_MODER_OUTPUT_MODE	= 0x1,
-	STM32L4X_MODER_ALT_MODE		= 0x2,
-	STM32L4X_MODER_ANALOG_MODE	= 0x3,
-	STM32L4X_MODER_MASK		= 0x3,
-};
-
-enum {
-	STM32L4X_OTYPER_PUSH_PULL	= 0x0,
-	STM32L4X_OTYPER_OPEN_DRAIN	= 0x1,
-	STM32L4X_OTYPER_MASK		= 0x1,
-};
-
-enum {
-	STM32L4X_PUPDR_NO_PULL		= 0x0,
-	STM32L4X_PUPDR_PULL_UP		= 0x1,
-	STM32L4X_PUPDR_PULL_DOWN	= 0x2,
-	STM32L4X_PUPDR_MASK		= 0x3,
-};
+//
+// enum {
+// 	STM32L4X_MODER_INPUT_MODE	= 0x0,
+// 	STM32L4X_MODER_OUTPUT_MODE	= 0x1,
+// 	STM32L4X_MODER_ALT_MODE		= 0x2,
+// 	STM32L4X_MODER_ANALOG_MODE	= 0x3,
+// 	STM32L4X_MODER_MASK		= 0x3,
+// };
+//
+// enum {
+// 	STM32L4X_OTYPER_PUSH_PULL	= 0x0,
+// 	STM32L4X_OTYPER_OPEN_DRAIN	= 0x1,
+// 	STM32L4X_OTYPER_MASK		= 0x1,
+// };
+//
+// enum {
+// 	STM32L4X_PUPDR_NO_PULL		= 0x0,
+// 	STM32L4X_PUPDR_PULL_UP		= 0x1,
+// 	STM32L4X_PUPDR_PULL_DOWN	= 0x2,
+// 	STM32L4X_PUPDR_MASK		= 0x3,
+// };
 
 enum {
 	STM32L4X_PIN3			= 3,
@@ -72,71 +71,6 @@ struct stm32l4x_gpio {
 	u32_t ascr; /* Only present on STM32L4x1, STM32L4x5, STM32L4x6 */
 };
 
-/**
- * @brief map pin function to MODE register value
- */
-static u32_t func_to_mode(int conf, unsigned int afnum)
-{
-	/* If an alternate function is specified */
-	// if (afnum) {
-	// 	return STM32L4X_MODER_ALT_MODE;
-	// }
-	//
-	// switch (conf) {
-	// case STM32L4X_PIN_CONFIG_BIAS_HIGH_IMPEDANCE:
-	// case STM32L4X_PIN_CONFIG_BIAS_PULL_UP:
-	// case STM32L4X_PIN_CONFIG_BIAS_PULL_DOWN:
-	// 	return STM32L4X_MODER_INPUT_MODE;
-	// case STM32L4X_PIN_CONFIG_ANALOG:
-	// 	return STM32L4X_MODER_ANALOG_MODE;
-	// default:
-	// 	return STM32L4X_MODER_OUTPUT_MODE;
-	// }
-	//
-	// return STM32L4X_MODER_INPUT_MODE;
-
-	return ((conf && STM32_MODER_MASK) >> STM32_MODER_SHIFT);
-}
-
-static u32_t func_to_otype(int conf)
-{
-	// switch (conf) {
-	// case STM32L4X_PIN_CONFIG_OPEN_DRAIN:
-	// case STM32L4X_PIN_CONFIG_OPEN_DRAIN_PULL_UP:
-	// case STM32L4X_PIN_CONFIG_OPEN_DRAIN_PULL_DOWN:
-	// 	return STM32L4X_OTYPER_OPEN_DRAIN;
-	// default:
-	// 	return STM32L4X_OTYPER_PUSH_PULL;
-	// }
-	//
-	// return STM32L4X_OTYPER_PUSH_PULL;
-
-	return ((conf && STM32_OTYPER_MASK) >> STM32_OTYPER_SHIFT);
-}
-
-static u32_t func_to_pupd(int conf)
-{
-	// switch (conf) {
-	// case STM32L4X_PIN_CONFIG_ANALOG:
-	// case STM32L4X_PIN_CONFIG_BIAS_HIGH_IMPEDANCE:
-	// case STM32L4X_PIN_CONFIG_PUSH_PULL:
-	// case STM32L4X_PIN_CONFIG_OPEN_DRAIN:
-	// 	return STM32L4X_PUPDR_NO_PULL;
-	// case STM32L4X_PIN_CONFIG_BIAS_PULL_UP:
-	// case STM32L4X_PIN_CONFIG_PUSH_PULL_PULL_UP:
-	// case STM32L4X_PIN_CONFIG_OPEN_DRAIN_PULL_UP:
-	// 	return STM32L4X_PUPDR_PULL_UP;
-	// case STM32L4X_PIN_CONFIG_BIAS_PULL_DOWN:
-	// case STM32L4X_PIN_CONFIG_PUSH_PULL_PULL_DOWN:
-	// case STM32L4X_PIN_CONFIG_OPEN_DRAIN_PULL_DOWN:
-	// 	return STM32L4X_PUPDR_PULL_DOWN;
-	// }
-	//
-	// return STM32L4X_PUPDR_NO_PULL;
-
-	return ((conf && STM32_PUPDR_MASK) >> STM32_PUPDR_SHIFT);
-}
-
 int stm32_gpio_flags_to_conf(int flags, int *pincfg)
 {
 	int direction = flags & GPIO_DIR_MASK;
@@ -145,22 +79,6 @@ int stm32_gpio_flags_to_conf(int flags, int *pincfg)
 	if (!pincfg) {
 		return -EINVAL;
 	}
-
-	// if (direction == GPIO_DIR_OUT) {
-	// 	*pincfg = STM32L4X_PIN_CONFIG_PUSH_PULL;
-	// } else {
-	// 	int pud = flags & GPIO_PUD_MASK;
-	//
-	// 	/* pull-{up,down} maybe? */
-	// 	if (pud == GPIO_PUD_PULL_UP) {
-	// 		*pincfg = STM32L4X_PIN_CONFIG_BIAS_PULL_UP;
-	// 	} else if (pud == GPIO_PUD_PULL_DOWN) {
-	// 		*pincfg = STM32L4X_PIN_CONFIG_BIAS_PULL_DOWN;
-	// 	} else {
-	// 		/* floating */
-	// 		*pincfg = STM32L4X_PIN_CONFIG_BIAS_HIGH_IMPEDANCE;
-	// 	}
-	// }
 
 	if (direction == GPIO_DIR_OUT) {
 		*pincfg = STM32_MODER_OUTPUT_MODE;
