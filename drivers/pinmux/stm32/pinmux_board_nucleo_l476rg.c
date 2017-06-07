@@ -15,6 +15,7 @@
 #include "pinmux_stm32.h"
 
 /* pin assignments for NUCLEO-L476RG board */
+#if 0
 static const struct pin_config pinconf[] = {
 #ifdef CONFIG_UART_STM32_PORT_1
 	{STM32_PIN_PA9,  STM32L4X_PINMUX_FUNC_PA9_USART1_TX},
@@ -58,6 +59,14 @@ static const struct pin_config pinconf[] = {
 	{STM32_PIN_PC12, STM32L4X_PINMUX_FUNC_PC12_SPI3_MOSI},
 #endif /* CONFIG_SPI_3 */
 };
+#else
+static const struct pin_config pinconf[] = {
+#ifdef CONFIG_UART_STM32_PORT_2
+	{STM32_PIN_PA2, STM32L4_ALT_FUNC_PA2_USART2_TX | STM32_MODER_ALT_MODE | STM32_OTYPER_PUSH_PULL | STM32_PUPDR_NO_PULL},
+	{STM32_PIN_PA3, STM32L4_ALT_FUNC_PA3_USART2_RX | STM32_MODER_ALT_MODE | STM32_OTYPER_PUSH_PULL | STM32_PUPDR_NO_PULL},
+#endif	/* CONFIG_UART_STM32_PORT_2 */
+};
+#endif
 
 static int pinmux_stm32_init(struct device *port)
 {
