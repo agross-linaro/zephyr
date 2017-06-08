@@ -3,7 +3,7 @@
 # vim: ai:ts=4:sw=4
 
 import sys
-from os import listdir
+from os import listdir, walk
 import os
 import re
 import yaml
@@ -18,6 +18,8 @@ phandles = {}
 aliases = {}
 chosen = {}
 reduced = {}
+defs = {}
+structs = {}
 
 def convert_string_to_label(s):
   # Transmute ,- to _
@@ -135,7 +137,7 @@ class Loader(yaml.Loader):
             with open(filepath, 'r') as f:
                 return yaml.load(f, Loader)
 
-def insert_defs(node_address, defs, new_defs, new_aliases):
+def insert_defs(node_address, new_defs, new_aliases):
   if node_address in defs:
     if 'aliases' in defs[node_address]:
       defs[node_address]['aliases'].update(new_aliases)
@@ -184,7 +186,7 @@ def find_parent_irq_node(node_address):
 
   return reduced[phandles[interrupt_parent]]
 
-def extract_interrupts(node_address, yaml, y_key, names, defs, def_label):
+def extract_interrupts(node_address, yaml, y_key, names, def_label):
   node = reduced[node_address]
 
   try:
@@ -227,7 +229,7 @@ def extract_interrupts(node_address, yaml, y_key, names, defs, def_label):
         prop_alias['_'.join(l_base + name + l_cell_prefix)] = l_fqn
 
     index += 1
-    insert_defs(node_address, defs, prop_def, prop_alias)
+    insert_defs(node_address, prop_def, prop_alias)
 
   return
 
@@ -249,7 +251,7 @@ def extract_reg_prop(node_address, names, defs, def_label, div, post_label):
 
   index = 0
   l_base = def_label.split('/')
-  l_addr = [convert_string_to_label(post_label).upper()]
+  l_addr = ["BASE_ADDRESS"]
   l_size = ["SIZE"]
 
   while props:
@@ -281,7 +283,7 @@ def extract_reg_prop(node_address, names, defs, def_label, div, post_label):
       prop_alias['_'.join(l_base + l_addr)] = l_addr_fqn
       prop_alias['_'.join(l_base + l_size)] = l_size_fqn
 
-    insert_defs(node_address, defs, prop_def, prop_alias)
+    insert_defs(node_address, prop_def, prop_alias)
 
     # increment index for definition creation
     index += 1
@@ -330,7 +332,7 @@ def extract_cells(node_address, yaml, y_key, names, index, prefix, defs, def_lab
         if index == 0:
           prop_alias['_'.join(label[:-1])] = '_'.join(label)
 
-    insert_defs(node_address, defs, prop_def, prop_alias)
+    insert_defs(node_address, prop_def, prop_alias)
 
   # recurse if we have anything left
   if len(props):
@@ -377,7 +379,7 @@ def extract_pinctrl(node_address, yaml, pinconf, names, index, defs, def_label):
           prop_def[key_label] = pin
           prop_def[func_label] = reduced[subnode]['props']['function']
 
-  insert_defs(node_address, defs, prop_def, {})
+  insert_defs(node_address, prop_def, {})
 
 def extract_single(node_address, yaml, prop, key, prefix, defs, def_label):
 
@@ -420,7 +422,7 @@ def extract_property(node_compat, yaml, node_address, y_key, y_val, names, prefi
   if y_key == 'reg':
     extract_reg_prop(node_address, names, defs, def_label, 1, y_val.get('label', None))
   elif y_key == 'interrupts' or y_key == 'interupts-extended':
-    extract_interrupts(node_address, yaml, y_key, names, defs, def_label)
+    extract_interrupts(node_address, yaml, y_key, names, def_label)
   elif 'pinctrl-' in y_key:
     p_index = int(y_key.split('-')[1])
     extract_pinctrl(node_address, yaml, reduced[node_address]['props'][y_key],
@@ -474,6 +476,7 @@ def extract_node_include_info(reduced, root_node_address, sub_node_address,
         prefix = []
         if v.get('use-name-prefix') != None:
           prefix = [convert_string_to_label(k.upper())]
+
 
         for c in node['props'].keys():
           if c.endswith("-names"):
@@ -690,6 +693,16 @@ def main():
 
   defs = {}
   structs = {}
+  # load zephyr specific nodes
+  flash = {}
+  console = {}
+  sram = {}
+  if 'zephyr,flash' in chosen:
+    flash = reduced[chosen['zephyr,flash']]
+  if 'zephyr,console' in chosen:
+    console = reduced[chosen['zephyr,console']]
+  if 'zephyr,sram' in chosen:
+    sram = reduced[chosen['zephyr,sram']]
   for k, v in reduced.items():
     node_compat = get_compat(v)
     if node_compat != None and node_compat in yaml_list:
