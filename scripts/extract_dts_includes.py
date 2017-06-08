@@ -3,7 +3,7 @@
 # vim: ai:ts=4:sw=4
 
 import sys
-from os import listdir
+from os import listdir, walk
 import os
 import re
 import yaml
@@ -17,6 +17,8 @@ phandles = {}
 aliases = {}
 chosen = {}
 reduced = {}
+defs = {}
+structs = {}
 
 
 def convert_string_to_label(s):
@@ -142,7 +144,7 @@ class Loader(yaml.Loader):
                 return yaml.load(f, Loader)
 
 
-def insert_defs(node_address, defs, new_defs, new_aliases):
+def insert_defs(node_address, new_defs, new_aliases):
     if node_address in defs:
         if 'aliases' in defs[node_address]:
             defs[node_address]['aliases'].update(new_aliases)
@@ -196,7 +198,7 @@ def find_parent_irq_node(node_address):
     return reduced[phandles[interrupt_parent]]
 
 
-def extract_interrupts(node_address, yaml, y_key, names, defs, def_label):
+def extract_interrupts(node_address, yaml, y_key, names, def_label):
     node = reduced[node_address]
 
     try:
@@ -240,7 +242,7 @@ def extract_interrupts(node_address, yaml, y_key, names, defs, def_label):
                 prop_alias['_'.join(l_base + name + l_cell_name)] = l_fqn
 
         index += 1
-        insert_defs(node_address, defs, prop_def, prop_alias)
+        insert_defs(node_address, prop_def, prop_alias)
 
     return
 
@@ -295,7 +297,7 @@ def extract_reg_prop(node_address, names, defs, def_label, div, post_label):
             prop_alias['_'.join(l_base + l_addr)] = l_addr_fqn
             prop_alias['_'.join(l_base + l_size)] = l_size_fqn
 
-        insert_defs(node_address, defs, prop_def, prop_alias)
+        insert_defs(node_address, prop_def, prop_alias)
 
         # increment index for definition creation
         index += 1
@@ -347,7 +349,7 @@ def extract_cells(node_address, yaml, y_key, names, index, prefix, defs,
                 if index == 0:
                     prop_alias['_'.join(label[:-1])] = '_'.join(label)
 
-        insert_defs(node_address, defs, prop_def, prop_alias)
+        insert_defs(node_address, prop_def, prop_alias)
 
     # recurse if we have anything left
     if len(props):
@@ -399,7 +401,7 @@ def extract_pinctrl(node_address, yaml, pinconf, names, index, defs,
                     prop_def[func_label] = \
                         reduced[subnode]['props']['function']
 
-    insert_defs(node_address, defs, prop_def, {})
+    insert_defs(node_address, prop_def, {})
 
 
 def extract_single(node_address, yaml, prop, key, prefix, defs, def_label):
@@ -462,7 +464,7 @@ def extract_property(node_compat, yaml, node_address, y_key, y_val, names,
         extract_reg_prop(node_address, names, defs, def_label,
                          1, y_val.get('label', None))
     elif y_key == 'interrupts' or y_key == 'interupts-extended':
-        extract_interrupts(node_address, yaml, y_key, names, defs, def_label)
+        extract_interrupts(node_address, yaml, y_key, names, def_label)
     elif 'pinctrl-' in y_key:
         p_index = int(y_key.split('-')[1])
         extract_pinctrl(node_address, yaml,
@@ -740,8 +742,6 @@ def main():
     # collapse the yaml inherited information
     yaml_list = yaml_collapse(yaml_list)
 
-    defs = {}
-    structs = {}
     for k, v in reduced.items():
         node_compat = get_compat(v)
         if node_compat is not None and node_compat in yaml_list:
@@ -788,7 +788,7 @@ def main():
         load_defs['CONFIG_FLASH_LOAD_OFFSET'] = 0
         load_defs['CONFIG_FLASH_LOAD_SIZE'] = 0
 
-    insert_defs(chosen['zephyr,flash'], defs, load_defs, {})
+    insert_defs(chosen['zephyr,flash'], load_defs, {})
 
     # generate include file
     if args.keyvalue:
