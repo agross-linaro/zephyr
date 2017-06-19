@@ -45,7 +45,8 @@ endef
 cmd_cc_o_c_1 = $(CC) $(KBUILD_CPPFLAGS) $(KBUILD_CFLAGS) $(ZEPHYRINCLUDE) -c -o $@ $<
 
 arch/$(ARCH)/core/offsets/offsets.o: arch/$(ARCH)/core/offsets/offsets.c $(KCONFIG_CONFIG) \
-				include/generated/generated_dts_board.h
+				include/generated/generated_dts_board.h \
+				include/generated/generated_dts_struct.h
 	$(Q)mkdir -p $(dir $@)
 	$(call if_changed,cc_o_c_1)
 
@@ -66,5 +67,3 @@ endef
 include/generated/offsets.h: arch/$(ARCH)/core/offsets/offsets.o \
 			     include/config/auto.conf FORCE
 	$(call offsetchk,arch/$(ARCH)/core/offsets/offsets.o)
-
-
