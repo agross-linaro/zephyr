@@ -420,6 +420,7 @@ def extract_pinctrl(node_address, yaml, pinconf, names, index, def_label):
     for p in prop_list:
         pin_node_address = phandles[p]
         parent_address = '/'.join(pin_node_address.split('/')[:-1])
+        pin_subnode = '/'.join(pin_node_address.split('/')[-1:])
         pin_parent = reduced[parent_address]
         cell_yaml = yaml[get_compat(pin_parent)]
         cell_prefix = cell_yaml.get('cell_string', None)
@@ -433,11 +434,11 @@ def extract_pinctrl(node_address, yaml, pinconf, names, index, def_label):
             post_fix.append(cell_prefix)
 
         for subnode in reduced.keys():
-            if pin_node_address in subnode and pin_node_address != subnode:
+            if pin_subnode in subnode and pin_node_address != subnode:
                 # found a subnode underneath the pinmux handle
                 pin_label = def_prefix + post_fix + subnode.split('/')[-2:]
 
-                for i, pin in enumerate(reduced[subnode]['props']['pins']):
+                for i, cells in enumerate(reduced[subnode]['props']):
                     key_label = list(pin_label) + \
                         [cell_yaml['#cells'][0]] + [str(i)]
                     func_label = key_label[:-2] + \
@@ -447,10 +448,10 @@ def extract_pinctrl(node_address, yaml, pinconf, names, index, def_label):
                     func_label = convert_string_to_label(
                         '_'.join(func_label)).upper()
 
-                    prop_def[key_label] = pin
+                    prop_def[key_label] = reduced[subnode]['props'][cells]
                     prop_def[func_label] = \
                         reduced[subnode]['props']['function']
-                    cell_struct['data'].append(pin)
+                    cell_struct['data'].append(prop_def[key_label])
                     cell_struct['data'].append(prop_def[func_label])
 
         prop_struct.append(cell_struct)
