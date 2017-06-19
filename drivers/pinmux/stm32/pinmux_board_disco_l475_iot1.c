@@ -12,21 +12,25 @@
 #include "pinmux/pinmux.h"
 
 #include "pinmux_stm32.h"
+#include <generated_dts_struct.h>
+
 
 /* pin assignments for Disco L475 IOT1 board */
 static const struct pin_config pinconf[] = {
+#if 0
 #ifdef CONFIG_UART_STM32_PORT_1
 	{STM32_PIN_PB6, STM32L4X_PINMUX_FUNC_PB6_USART1_TX},
 	{STM32_PIN_PB7, STM32L4X_PINMUX_FUNC_PB7_USART1_RX},
 #endif	/* CONFIG_UART_STM32_PORT_1 */
+#endif
 #ifdef CONFIG_I2C_1
-	{STM32_PIN_PB8, STM32L4X_PINMUX_FUNC_PB8_I2C1_SCL},
-	{STM32_PIN_PB9, STM32L4X_PINMUX_FUNC_PB9_I2C1_SDA},
+	{STM32_PIN_PB8, (STM32_PINMUX_FUNC_ALT_4 | STM32_MODER_ALT_MODE | STM32_OTYPER_PUSH_PULL | STM32_PUPDR_NO_PULL)},
+	{STM32_PIN_PB9, (STM32_PINMUX_FUNC_ALT_4 | STM32_MODER_ALT_MODE | STM32_OTYPER_PUSH_PULL | STM32_PUPDR_NO_PULL)},
 #endif /* CONFIG_I2C_1 */
 #ifdef CONFIG_I2C_2
 	/* I2C2 is used for NFC, STSAFE, ToF & MEMS sensors */
-	{STM32_PIN_PB10, STM32L4X_PINMUX_FUNC_PB10_I2C2_SCL},
-	{STM32_PIN_PB11, STM32L4X_PINMUX_FUNC_PB11_I2C2_SDA},
+	{STM32_PIN_PB10, (STM32_PINMUX_FUNC_ALT_4 | STM32_MODER_ALT_MODE | STM32_OTYPER_PUSH_PULL | STM32_PUPDR_NO_PULL)},
+	{STM32_PIN_PB11, (STM32_PINMUX_FUNC_ALT_4 | STM32_MODER_ALT_MODE | STM32_OTYPER_PUSH_PULL | STM32_PUPDR_NO_PULL)},
 #endif /* CONFIG_I2C_2 */
 #ifdef CONFIG_SPI_1
 	{STM32_PIN_PA5, STM32L4X_PINMUX_FUNC_PA5_SPI1_SCK},
@@ -51,11 +55,13 @@ static const struct pin_config pinconf[] = {
 
 };
 
+
 static int pinmux_stm32_init(struct device *port)
 {
 	ARG_UNUSED(port);
 
 	stm32_setup_pins(pinconf, ARRAY_SIZE(pinconf));
+	stm32_setup_pins(gen_pinconf, ARRAY_SIZE(gen_pinconf));
 
 	return 0;
 }

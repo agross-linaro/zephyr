@@ -26,6 +26,12 @@ properties:
       type: array
       category: required
       description: required interrupts
+      generation: structure
+
+  - pinctrl-\d+:
+      type: array
+      category: optional
+      description: pinmux information for RX, TX, CTS, RTS
       generation: define
 
   - clocks:
