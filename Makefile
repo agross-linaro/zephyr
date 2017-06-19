@@ -968,7 +968,7 @@ define filechk_generated_dts_board.h
 	(echo "/* WARNING. THIS FILE IS AUTO-GENERATED. DO NOT MODIFY! */"; \
 		if test -e $(ZEPHYR_BASE)/dts/$(ARCH)/$(BOARD_NAME).fixup; then \
 			$(ZEPHYR_BASE)/scripts/extract_dts_includes.py \
-				-d dts/$(ARCH)/$(BOARD_NAME).dts_compiled \
+			        -d dts/$(ARCH)/$(BOARD_NAME).dts_compiled \
 				-y $(ZEPHYR_BASE)/dts/$(ARCH)/yaml \
 				-f $(ZEPHYR_BASE)/dts/$(ARCH)/$(BOARD_NAME).fixup; \
 		else \
@@ -976,6 +976,14 @@ define filechk_generated_dts_board.h
 				-d dts/$(ARCH)/$(BOARD_NAME).dts_compiled \
 				-y $(ZEPHYR_BASE)/dts/$(ARCH)/yaml; \
 		fi; \
+		)
+endef
+define filechk_generated_dts_struct.h
+	(echo "/* WARNING. THIS FILE IS AUTO-GENERATED. DO NOT MODIFY! */"; \
+			$(ZEPHYR_BASE)/scripts/extract_dts_includes.py \
+				-s \
+				-d dts/$(ARCH)/$(BOARD_NAME).dts_compiled \
+				-y $(ZEPHYR_BASE)/dts/$(ARCH)/yaml; \
 		)
 endef
 define filechk_generated_dts_board.conf
@@ -989,6 +997,9 @@ else
 define filechk_generated_dts_board.h
 	(echo "/* WARNING. THIS FILE IS AUTO-GENERATED. DO NOT MODIFY! */";)
 endef
+define filechk_generated_dts_struct.h
+	(echo "/* WARNING. THIS FILE IS AUTO-GENERATED. DO NOT MODIFY! */";)
+endef
 define filechk_generated_dts_board.conf
 	(echo "# WARNING. THIS FILE IS AUTO-GENERATED. DO NOT MODIFY!";)
 endef
@@ -1000,6 +1011,12 @@ ifeq ($(CONFIG_HAS_DTS),y)
 endif
 	$(call filechk,generated_dts_board.h)
 
+include/generated/generated_dts_struct.h: include/config/auto.conf FORCE
+ifeq ($(CONFIG_HAS_DTS),y)
+	$(Q)$(MAKE) $(build)=dts/$(ARCH)
+endif
+	$(call filechk,generated_dts_struct.h)
+
 include/generated/generated_dts_board.conf: include/config/auto.conf FORCE
 ifeq ($(CONFIG_HAS_DTS),y)
 	$(Q)$(MAKE) $(build)=dts/$(ARCH)
@@ -1007,6 +1024,7 @@ endif
 	$(call filechk,generated_dts_board.conf)
 
 dts: include/generated/generated_dts_board.h
+dts: include/generated/generated_dts_struct.h
 
 define filechk_.config-sanitycheck
 	(cat .config; \
@@ -1018,7 +1036,6 @@ endef
 	$(call filechk,.config-sanitycheck)
 
 config-sanitycheck: .config-sanitycheck
-
 # The actual objects are generated when descending,
 # make sure no implicit rule kicks in
 $(sort $(zephyr-deps)): $(zephyr-dirs) zephyr-app-dir ;
@@ -1135,6 +1152,7 @@ CLEAN_DIRS  += $(MODVERDIR)
 
 CLEAN_FILES += 	include/generated/generated_dts_board.conf \
 		include/generated/generated_dts_board.h \
+		include/generated/generated_dts_struct.h \
 		.config-sanitycheck \
 		.old_version .tmp_System.map .tmp_version \
 		.tmp_* System.map *.lnk *.map *.elf *.lst \

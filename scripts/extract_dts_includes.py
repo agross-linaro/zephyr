@@ -686,6 +686,35 @@ def lookup_defs(defs, node, key):
     return defs[node].get(key, None)
 
 
+def generate_structs_file(args):
+    compatible = reduced['/']['props']['compatible'][0]
+
+    sys.stdout.write("/**************************************************\n")
+    sys.stdout.write(" * Generated include file for " + compatible)
+    sys.stdout.write("\n")
+    sys.stdout.write(" *               DO NOT MODIFY\n");
+    sys.stdout.write(" */\n")
+    sys.stdout.write("\n")
+    sys.stdout.write("#ifndef _DEVICE_TREE_STRUCTS_H" + "\n");
+    sys.stdout.write("#define _DEVICE_TREE_STRUCTS_H" + "\n");
+    sys.stdout.write("\n")
+
+    sys.stdout.write(structs_to_generate['pinctrl']['name'])
+    sys.stdout.write(" = ")
+    sys.stdout.write("{ \n")
+
+    for value in range(0, len(structs_to_generate['pinctrl']['data'])):
+        sys.stdout.write("{")
+        sys.stdout.write(str(structs_to_generate['pinctrl']['data'][value]).strip('[').strip(']'))
+        sys.stdout.write("}")
+        if value != (len(structs_to_generate['pinctrl']['data'])-1):
+            sys.stdout.write(",\n")
+
+    sys.stdout.write("\n}; \n")
+
+    sys.stdout.write("\n#endif\n")
+
+
 def generate_structs(args):
 
     struct_dict = {}
