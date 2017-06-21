@@ -414,9 +414,9 @@ def extract_pinctrl(node_address, yaml, pinconf, names, index, def_label):
           func_label = convert_string_to_label('_'.join(func_label)).upper()
 
           prop_def[key_label] = reduced[subnode]['props'][cells]
-          prop_def[func_label] = reduced[subnode]['props']['function']
+          #prop_def[func_label] = reduced[subnode]['props'][cells]
           cell_struct['data'].append(reduced[subnode]['props'][cells])
-          cell_struct['data'].append(prop_def[func_label])
+          #cell_struct['data'].append(prop_def[func_label])
 
     prop_struct.append(cell_struct)
 
