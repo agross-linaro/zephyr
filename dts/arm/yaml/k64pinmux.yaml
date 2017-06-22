@@ -27,6 +27,8 @@ properties:
 cell_string: PINMUX
 
 "#cells":
-  - pin
+  - pins
   - function
+ "#struct":
+  - name: gen_pinconf
 ...
