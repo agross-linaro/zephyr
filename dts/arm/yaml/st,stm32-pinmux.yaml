@@ -30,6 +30,5 @@ cell_string: PINMUX
 "#cells":
   - pin func
 "#struct":
-  - name: const struct pin_config gen_pinconf[]
-  - type: array
+  - name: gen_pinconf
 ...
