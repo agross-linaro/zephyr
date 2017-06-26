@@ -654,28 +654,72 @@ def generate_include_file(args):
 
 def print_struct_members(node_instance, node, yaml_list, instance_label=0):
 
+    cell_string = ""
+
     if node in yaml_list:
         cell_props = yaml_list[node]['properties']
+        # if 'pinctrl-\\d+' in cell_props.keys():
+        #     #rename property in something matching node_instance keys
+        #     cell_props['pinctrl'] = cell_props.pop('pinctrl-\\d+')
+        if 'cell_string' in yaml_list[node].keys():
+            cell_string = str(yaml_list[node]['cell_string']) + "_"
 
     for k, v in node_instance[instance_label].items():
 
         for item in range(0, len(cell_props)):
+            if 'pinctrl-\\d+' in cell_props[item].keys():
+            #     #rename property in something matching node_instance keys
+                 cell_props[item]['pinctrl'] = cell_props[item].pop('pinctrl-\\d+')
             if k in cell_props[item].keys():
                 if 'type' in cell_props[item][k].keys():
                     cell_type = cell_props[item][k]['type']
 
-                    sys.stdout.write("\t\t")
                     if 'array' == cell_type:
-                         sys.stdout.write(str(cell_type) + " ")
-                         sys.stdout.write(str(k) + " " + str(v) + "\n")
+                        # sys.stdout.write("\t\t")
+                        # sys.stdout.write(str(cell_type) + " ")
+                        # sys.stdout.write(str(k) + " " + str(v) + "\n")
+                        sys.stdout.write("\t\t")
+                        sys.stdout.write("." + cell_string + convert_string_to_label(k) + " = {")
+                        if isinstance(v[0], dict):
+                        #cells array have a name
+                            if len(v[0]) > 1:
+                            #only one label available
+
+                            #else:
+                                for i in range(0, len(v[0])):
+                                    sys.stdout.write("\n\t\t\t\t")
+                                    sys.stdout.write("." + cell_string + convert_string_to_label(v[0]['labels'][i]) + " = " + str(v[0]['data'][i]) + ",")
+                                sys.stdout.write("\n\t\t")
+                        else:
+                            for i in range(0 , len(v)):
+                                sys.stdout.write(str(v[i]))
+                                if i != (len(v) - 1):
+                                    sys.stdout.write(" ,")
+                        sys.stdout.write("}\n")
+
                     elif 'int' == cell_type:
-                         sys.stdout.write(str(cell_type) + " ")
-                         sys.stdout.write(str(k) + " " + str(v) + "\n")
+                        # sys.stdout.write("\t\t")
+                        # sys.stdout.write(str(cell_type) + " ")
+                        # sys.stdout.write(str(k) + " " + str(v) + "\n")
+
+                        if isinstance( v, int ):
+                            sys.stdout.write("\t\t")
+                            sys.stdout.write("." + cell_string + convert_string_to_label(k) + " = " + str(v) + ",\n")
+                        elif isinstance( v, list ):
+                            #If value is array and int expected, print values as int
+                            for i in range(0 , len(v)):
+                                sys.stdout.write("\t\t")
+                                sys.stdout.write("." + cell_string + convert_string_to_label(k) + "_" + str(i) + " = " + str(v[i]) + ",\n")
+                        else:
+                            raise Exception("Expected type : Int or Array")
+
                     elif 'string' == cell_type:
+                        sys.stdout.write("\t\t")
                         sys.stdout.write(str(cell_type) + " ")
                         sys.stdout.write(str(k) + " " + str(v) + "\n")
 
-
+                    else:
+                        raise Exception("Cell type not expected")
 
 def generate_structs_file(args, yaml_list):
     compatible = reduced['/']['props']['compatible'][0]
@@ -704,13 +748,13 @@ def generate_structs_file(args, yaml_list):
                 sys.stdout.write(instance_name)
                 sys.stdout.write(" = { \n")
                 print_struct_members(struct_dict[node], node, yaml_list, i)
-                sys.stdout.write("\n};\n\n")
+                sys.stdout.write("};\n\n")
                 i = i + 1
         else:
             sys.stdout.write(struct_name)
             sys.stdout.write(" = { \n")
             print_struct_members(struct_dict[node], node, yaml_list)
-            sys.stdout.write("\n};\n\n")
+            sys.stdout.write("};\n\n")
 
     # generate pinctrl_struct
     for node in struct_dict:
@@ -722,7 +766,8 @@ def generate_structs_file(args, yaml_list):
 
     #print pinctrl struct
     if len(pinctrl_struct):
-        sys.stdout.write(pinctrl_struct[0]['struct name']) #assume all pinctrl have same struct name
+        sys.stdout.write("static struct pin_config")
+        sys.stdout.write(" " + pinctrl_struct[0]['struct name']) #assume all pinctrl have same struct name
         sys.stdout.write(" = ")
         sys.stdout.write("{ \n")
 

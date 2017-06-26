@@ -33,6 +33,12 @@
 				       tx = <STM32_PIN_PB7 (STM32_PINMUX_FUNC_ALT_7 | STM32_MODER_ALT_MODE | STM32_OTYPER_PUSH_PULL | STM32_PUPDR_NO_PULL)>;
                                 };
 			};
+			uart1_lp: uart1_lp {
+				rx_tx {
+                                       rx = <STM32_PIN_PA1 (STM32_PINMUX_FUNC_ALT_7 | STM32_MODER_ALT_MODE | STM32_OTYPER_PUSH_PULL | STM32_PUPDR_NO_PULL)>;
+				       tx = <STM32_PIN_PA9 (STM32_PINMUX_FUNC_ALT_7 | STM32_MODER_ALT_MODE | STM32_OTYPER_PUSH_PULL | STM32_PUPDR_NO_PULL)>;
+                                };
+			};
 			uart2_default: uart2_default {
 				rx_tx {
                                        rx = <STM32_PIN_PA2 (STM32_PINMUX_FUNC_ALT_7 | STM32_MODER_ALT_MODE | STM32_OTYPER_PUSH_PULL | STM32_PUPDR_NO_PULL)>;
@@ -49,6 +55,7 @@
 			label = "UART_1";
 
 			pinctrl-0 = <&uart1_default>;
+                        pinctrl-1 = <&uart1_lp>;
 			pinctrl-names = "uart1_rx_tx";
 		};
 
