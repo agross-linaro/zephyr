@@ -20,6 +20,7 @@ chosen = {}
 reduced = {}
 defs = {}
 structs = {}
+struct_dict = {}
 
 def convert_string_to_label(s):
   # Transmute ,- to _
@@ -397,8 +398,9 @@ def extract_pinctrl(node_address, yaml, pinconf, names, index, def_label):
 
     cell_struct = {}
     cell_struct['data'] = []
-    cell_struct['name'] = []
-    cell_struct['labels'] = cell_yaml.get('#cells')
+    cell_struct['struct name'] = cell_yaml['#struct'][0].get('name')
+    cell_struct['labels'] = pin_entry.get('label')
+
     if cell_prefix != None:
       post_fix.append(cell_prefix)
 
@@ -437,8 +439,8 @@ def extract_pinctrl(node_address, yaml, pinconf, names, index, def_label):
                 cell_struct['data'].append(reduced[subnode]['props'][cells][0])
                 cell_struct['data'].append(reduced[subnode]['props'][cells][1])
 
-    if 'name' not in prop_struct:
-        cell_struct['name'].append(cell_yaml['#struct'][0].get('name'))
+    #if 'name' not in prop_struct:
+    #    cell_struct['name'].append(cell_yaml['#struct'][0].get('name'))
 
     prop_struct.append(cell_struct)
 
@@ -685,6 +687,28 @@ def lookup_defs(defs, node, key):
 
     return defs[node].get(key, None)
 
+def print_struct_members(node_instance, node, yaml_list, instance_label=0):
+
+    if node in yaml_list:
+        cell_props = yaml_list[node]['properties']
+
+    for k, v in node_instance[instance_label].items():
+
+        for item in range(0, len(cell_props)):
+            if k in cell_props[item].keys():
+                if 'type' in cell_props[item][k].keys():
+                    cell_type = cell_props[item][k]['type']
+
+                    sys.stdout.write("\t\t")
+                    if 'array' == cell_type:
+                         sys.stdout.write(str(cell_type) + " ")
+                         sys.stdout.write(str(k) + " " + str(v) + "\n")
+                    elif 'int' == cell_type:
+                         sys.stdout.write(str(cell_type) + " ")
+                         sys.stdout.write(str(k) + " " + str(v) + "\n")
+                    elif 'string' == cell_type:
+                        sys.stdout.write(str(cell_type) + " ")
+                        sys.stdout.write(str(k) + " " + str(v) + "\n")
 
 def generate_structs_file(args):
     compatible = reduced['/']['props']['compatible'][0]
@@ -699,25 +723,60 @@ def generate_structs_file(args):
     sys.stdout.write("#define _DEVICE_TREE_STRUCTS_H" + "\n");
     sys.stdout.write("\n")
 
-    sys.stdout.write(structs_to_generate['pinctrl']['name'])
-    sys.stdout.write(" = ")
-    sys.stdout.write("{ \n")
+    pinctrl_struct = []
 
-    for value in range(0, len(structs_to_generate['pinctrl']['data'])):
-        sys.stdout.write("{")
-        sys.stdout.write(str(structs_to_generate['pinctrl']['data'][value]).strip('[').strip(']'))
-        sys.stdout.write("}")
-        if value != (len(structs_to_generate['pinctrl']['data'])-1):
-            sys.stdout.write(",\n")
+    #print node structs
+    for node in struct_dict:
+        sys.stdout.write("\n")
+        struct_name = convert_string_to_label(node)
 
-    sys.stdout.write("\n}; \n")
+        if len(struct_dict[node]) > 1:
+            i = 0
+            for instance in (struct_dict[node]):
+                instance_name= struct_name + '_' + instance['label'].strip('"')
+                sys.stdout.write(instance_name)
+                sys.stdout.write(" = { \n")
+                print_struct_members(struct_dict[node], node, yaml_list, i)
+                sys.stdout.write("\n};\n\n")
+                i = i + 1
+        else:
+            sys.stdout.write(struct_name)
+            sys.stdout.write(" = { \n")
+            print_struct_members(struct_dict[node], node, yaml_list)
+            sys.stdout.write("\n};\n\n")
+
+    # generate pinctrl_struct
+    for node in struct_dict:
+        for instance in (struct_dict[node]):
+            if 'pinctrl' in instance:
+                #keep only _default pinctrl nodes (The one selected for boot time)
+                if 'default' == instance['pinctrl'][0]['labels'].split('_')[1]:
+                    pinctrl_struct.append(instance['pinctrl'][0])
+
+    #print pinctrl struct
+    if len(pinctrl_struct):
+        sys.stdout.write(pinctrl_struct[0]['struct name']) #assume all pinctrl have same struct name
+        sys.stdout.write(" = ")
+        sys.stdout.write("{ \n")
+
+        for value in range(0, len(pinctrl_struct)):
+             for pin_number in range(0, int(len(pinctrl_struct[value]['data'])/2)):
+                 sys.stdout.write("\t\t\t{")
+                 sys.stdout.write(str(pinctrl_struct[value]['data'][pin_number]))
+                 sys.stdout.write(", " + str(pinctrl_struct[value]['data'][2*pin_number+1]))
+                 sys.stdout.write("},\n")
+
+        sys.stdout.write("}; \n")
+
+
+
 
     sys.stdout.write("\n#endif\n")
 
 
 def generate_structs(args):
 
-    struct_dict = {}
+
     # Generate structure information here
     #
     # structs structure is:
@@ -886,6 +945,7 @@ def main():
     generate_keyvalue_file(args)
   elif args.structs:
     generate_structs(args)
+    generate_structs_file(args, yaml_list)
   else:
     generate_include_file(args)
 
