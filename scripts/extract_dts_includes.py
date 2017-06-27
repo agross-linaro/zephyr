@@ -234,8 +234,9 @@ def extract_interrupts(node_address, yaml, y_key, names, def_label):
     l_cell_prefix = [yaml[get_compat(irq_parent)].get('cell_string', []).upper()]
 
     cell_struct = {}
-    cell_struct['labels'] = cell_yaml['#cells']
+    cell_struct['members'] = cell_yaml['#cells']
     cell_struct['data'] = []
+    cell_struct['defs'] = {'labels':[], 'aliases':[]}
     for i in range(cell_parent['props']['#interrupt-cells']):
       l_cell_name = [cell_yaml['#cells'][i].upper()]
       if l_cell_name == l_cell_prefix:
@@ -244,9 +245,11 @@ def extract_interrupts(node_address, yaml, y_key, names, def_label):
       l_fqn = '_'.join(l_base + l_cell_prefix + l_idx + l_cell_name)
       val = props.pop(0)
       prop_def[l_fqn] = val
+      cell_struct['defs']['labels'].append(l_fqn)
       cell_struct['data'].append(val)
       if len(name):
         prop_alias['_'.join(l_base + name + l_cell_prefix)] = l_fqn
+        cell_struct['defs']['aliases'].append('_'.join(l_base + name + l_cell_prefix))
     prop_structs.append(cell_struct)
 
     index += 1
@@ -283,6 +286,10 @@ def extract_reg_prop(node_address, names, defs, def_label, div, post_label):
     addr = 0
     size = 0
     l_idx = [str(index)]
+    entry_struct = {}
+    entry_struct['members'] = []
+    entry_struct['data'] = []
+    entry_struct['defs'] = {'labels':[], 'aliases':[]}
 
     try:
       name = [names.pop(0).upper()]
@@ -298,15 +305,24 @@ def extract_reg_prop(node_address, names, defs, def_label, div, post_label):
     l_size_fqn = '_'.join(l_base + l_size + l_idx)
     prop_def[l_addr_fqn] = hex(addr)
     prop_def[l_size_fqn] = int(size / div)
+    entry_struct['defs']['labels'].append(l_addr_fqn)
+    entry_struct['defs']['labels'].append(l_size_fqn)
     if len(name):
       prop_alias['_'.join(l_base + name + l_addr)] = l_addr_fqn
       prop_alias['_'.join(l_base + name + l_size)] = l_size_fqn
+      entry_struct['defs']['aliases'].append({'_'.join(l_base + name + l_addr): l_addr_fqn})
+      entry_struct['defs']['aliases'].append({'_'.join(l_base + name + l_size): l_size_fqn})
 
     if index == 0:
       prop_alias['_'.join(l_base + l_addr)] = l_addr_fqn
       prop_alias['_'.join(l_base + l_size)] = l_size_fqn
-    prop_struct.append(hex(addr))
-    prop_struct.append(int(size/div))
+      entry_struct['defs']['aliases'].append({'_'.join(l_base + l_addr): l_addr_fqn})
+      entry_struct['defs']['aliases'].append({'_'.join(l_base + l_size): l_size_fqn})
+
+    entry_struct['data'] = [hex(addr), int(size/div)]
+    prop_struct.append(entry_struct)
+    #prop_struct.append(hex(addr))
+    #prop_struct.append(int(size/div))
 
     insert_defs(node_address, prop_def, prop_alias)
     insert_structs(node_address, 'reg', prop_struct)
@@ -345,7 +361,8 @@ def extract_cells(node_address, yaml, y_key, names, index, prefix, def_label):
 
   cell_struct = {}
   cell_struct['data'] = []
-  cell_struct['labels'] = cell_yaml['#cells']
+  cell_struct['members'] = cell_yaml['#cells']
+  cell_struct['defs'] = {'labels':[], 'aliases':[]}
   for k in cell_parent['props'].keys():
     if k[0] == '#' and '-cells' in k:
       for i in range(cell_parent['props'].get(k)):
@@ -358,11 +375,14 @@ def extract_cells(node_address, yaml, y_key, names, index, prefix, def_label):
         val = props.pop(0)
         cell_struct['data'].append(val)
         prop_def['_'.join(label)] = val
+        cell_struct['defs']['labels'].append('_'.join(label))
         if len(name):
           prop_alias['_'.join(label_name)] = '_'.join(label)
+          cell_struct['defs']['aliases'].append({'_'.join(label_name): '_'.join(label)})
 
         if index == 0:
           prop_alias['_'.join(label[:-1])] = '_'.join(label)
+          cell_struct['defs']['aliases'].append({'_'.join(label[:-1]): '_'.join(label)})
 
     insert_defs(node_address, prop_def, prop_alias)
     insert_structs(node_address, cell_yaml.get('cell_string'), cell_struct)
@@ -399,7 +419,8 @@ def extract_pinctrl(node_address, yaml, pinconf, names, index, def_label):
     cell_struct = {}
     cell_struct['data'] = []
     cell_struct['struct name'] = cell_yaml['#struct'][0].get('name')
-    cell_struct['labels'] = pin_entry.get('label')
+    cell_struct['members'] = pin_entry.get('label')
+    cell_struct['defs'] = {'labels':[], 'aliases':[]}
 
     if cell_prefix != None:
       post_fix.append(cell_prefix)
@@ -419,12 +440,15 @@ def extract_pinctrl(node_address, yaml, pinconf, names, index, def_label):
 
               prop_def[key_label] = reduced[subnode]['props'][cells]
               prop_def[func_label] = reduced[subnode]['props'][cells]
+              cell_struct['defs']['labels'].append(key_label)
+              cell_struct['defs']['labels'].append(func_label)
 
             elif len(cell_yaml['#cells']) == 1:
               key_label = list(pin_label) + [cell_yaml['#cells'][0]] + [str(i)]
               key_label = convert_string_to_label('_'.join(key_label)).upper()
 
               prop_def[key_label] = reduced[subnode]['props'][cells]
+              cell_struct['defs']['labels'].append(key_label)
 
 
         if len(cell_yaml['#cells']) == 2:
@@ -453,6 +477,9 @@ def extract_single(node_address, yaml, prop, key, prefix, def_label):
   prop_def = {}
   prop_struct = {}
 
+  prop_struct['data'] = []
+  prop_struct['defs'] = {'labels':[], 'aliases':[]}
+
   if isinstance(prop, list):
     for i, p in enumerate(prop):
       k = convert_string_to_label(key).upper()
@@ -460,16 +487,20 @@ def extract_single(node_address, yaml, prop, key, prefix, def_label):
       if isinstance(p, str):
          p = "\"" + p + "\""
       prop_def[label + '_' + str(i)] = p
-      prop_struct[key] = p
-      insert_structs(node_address, key, p)
+      #prop_struct[key] = p
+      prop_struct['data'].append(p)
+      prop_struct['defs']['labels'].append(label + '_' + str(i))
+      insert_structs(node_address, key, prop_struct)
   else:
       k = convert_string_to_label(key).upper()
       label = def_label + '_' +  k
       if isinstance(prop, str):
          prop = "\"" + prop + "\""
       prop_def[label] = prop
-      prop_struct[key] = prop
-      insert_structs(node_address, key, prop)
+      #prop_struct[key] = prop
+      prop_struct['data'].append(prop)
+      prop_struct['defs']['labels'].append(label)
+      insert_structs(node_address, key, prop_struct)
 
   if node_address in defs:
     defs[node_address].update(prop_def)
@@ -987,14 +1018,16 @@ def main():
 
   insert_defs(chosen['zephyr,flash'], defs, load_defs, {})
 
+  pprint.pprint(defs)
+  pprint.pprint(structs)
   # generate include file
-  if args.keyvalue:
-    generate_keyvalue_file(args)
-  elif args.structs:
-    generate_structs(args)
-    generate_structs_file(args, yaml_list)
-  else:
-    generate_include_file(args)
+  #if args.keyvalue:
+  #  generate_keyvalue_file(args)
+  #elif args.structs:
+  #  generate_structs(args)
+  #  generate_structs_file(args, yaml_list)
+  #else:
+  #  generate_include_file(args)
 
 if __name__ == '__main__':
     main()
