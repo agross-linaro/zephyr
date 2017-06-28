@@ -726,22 +726,22 @@ def print_struct_members(node_instance, node, yaml_list, instance_label=0):
     cell_string = ""
 
     if node in yaml_list:
-        cell_props = yaml_list[node]['properties']
-        # if 'pinctrl-\\d+' in cell_props.keys():
+        node_yaml_props = yaml_list[node]['properties']
+        # if 'pinctrl-\\d+' in node_yaml_props.keys():
         #     #rename property in something matching node_instance keys
-        #     cell_props['pinctrl'] = cell_props.pop('pinctrl-\\d+')
+        #     node_yaml_props['pinctrl'] = node_yaml_props.pop('pinctrl-\\d+')
         if 'cell_string' in yaml_list[node].keys():
             cell_string = str(yaml_list[node]['cell_string']) + "_"
 
     for k, v in node_instance[instance_label].items():
 
-        for item in range(0, len(cell_props)):
-            if 'pinctrl-\\d+' in cell_props[item].keys():
-            #     #rename property in something matching node_instance keys
-                 cell_props[item]['pinctrl'] = cell_props[item].pop('pinctrl-\\d+')
-            if k in cell_props[item].keys():
-                if 'type' in cell_props[item][k].keys():
-                    cell_type = cell_props[item][k]['type']
+        for item in range(0, len(node_yaml_props)):
+            if 'pinctrl-\\d+' in node_yaml_props[item].keys():
+            #rename property in something matching node_instance keys
+                node_yaml_props[item]['pinctrl'] = node_yaml_props[item].pop('pinctrl-\\d+')
+            if k in node_yaml_props[item].keys():
+                if 'type' in node_yaml_props[item][k].keys():
+                    cell_type = node_yaml_props[item][k]['type']
 
                     if 'array' == cell_type:
                         # sys.stdout.write("\t\t")
@@ -749,20 +749,20 @@ def print_struct_members(node_instance, node, yaml_list, instance_label=0):
                         # sys.stdout.write(str(k) + " " + str(v) + "\n")
                         sys.stdout.write("\t\t")
                         sys.stdout.write("." + cell_string + convert_string_to_label(k) + " = {")
-                        if isinstance(v[0], dict):
+                        if isinstance(v['data'], dict):
                         #cells array have a name
-                            if len(v[0]) > 1:
+                            if len(v['data']) > 1:
                             #only one label available
 
                             #else:
-                                for i in range(0, len(v[0])):
+                                for i in range(0, len(v['data'])):
                                     sys.stdout.write("\n\t\t\t\t")
-                                    sys.stdout.write("." + cell_string + convert_string_to_label(v[0]['labels'][i]) + " = " + str(v[0]['data'][i]) + ",")
+                                    sys.stdout.write("." + cell_string + convert_string_to_label(v['labels'][i]) + " = " + str(v['data'][i]) + ",")
                                 sys.stdout.write("\n\t\t")
                         else:
-                            for i in range(0 , len(v)):
-                                sys.stdout.write(str(v[i]))
-                                if i != (len(v) - 1):
+                            for i in range(0, len(v['data'])):
+                                sys.stdout.write(str(v['data'][i]))
+                                if i != (len(v['data']) - 1):
                                     sys.stdout.write(" ,")
                         sys.stdout.write("}\n")
 
@@ -771,21 +771,20 @@ def print_struct_members(node_instance, node, yaml_list, instance_label=0):
                         # sys.stdout.write(str(cell_type) + " ")
                         # sys.stdout.write(str(k) + " " + str(v) + "\n")
 
-                        if isinstance( v, int ):
+                        #if isinstance(v['data'], int):
+                        if len(v['data']) == 1:
                             sys.stdout.write("\t\t")
-                            sys.stdout.write("." + cell_string + convert_string_to_label(k) + " = " + str(v) + ",\n")
-                        elif isinstance( v, list ):
-                            #If value is array and int expected, print values as int
-                            for i in range(0 , len(v)):
-                                sys.stdout.write("\t\t")
-                                sys.stdout.write("." + cell_string + convert_string_to_label(k) + "_" + str(i) + " = " + str(v[i]) + ",\n")
+                            sys.stdout.write("." + cell_string + convert_string_to_label(k) + " = " + str(v['data'][0]) + ",\n")
                         else:
-                            raise Exception("Expected type : Int or Array")
+                            #If value is array and int expected, print values as int
+                            for i in range(0, len(v['data'])):
+                                sys.stdout.write("\t\t")
+                                sys.stdout.write("." + cell_string + convert_string_to_label(k) + "_" + str(i) + " = " + str(v['data'][i]) + ",\n")
 
                     elif 'string' == cell_type:
                         sys.stdout.write("\t\t")
                         sys.stdout.write(str(cell_type) + " ")
-                        sys.stdout.write(str(k) + " " + str(v) + "\n")
+                        sys.stdout.write(str(k) + " " + str(v['data']) + "\n")
 
                     else:
                         raise Exception("Cell type not expected")
@@ -813,7 +812,7 @@ def generate_structs_file(args, yaml_list):
         if len(struct_dict[node]) > 1:
             i = 0
             for instance in (struct_dict[node]):
-                instance_name= struct_name + '_' + instance['label'].strip('"')
+                instance_name= struct_name + '_' + instance['label']['data'][0].strip('"')
                 sys.stdout.write(instance_name)
                 sys.stdout.write(" = { \n")
                 print_struct_members(struct_dict[node], node, yaml_list, i)
@@ -830,8 +829,8 @@ def generate_structs_file(args, yaml_list):
         for instance in (struct_dict[node]):
             if 'pinctrl' in instance:
                 #keep only _default pinctrl nodes (The one selected for boot time)
-                if 'default' == instance['pinctrl'][0]['labels'].split('_')[1]:
-                    pinctrl_struct.append(instance['pinctrl'][0])
+                if 'default' == instance['pinctrl']['members'].split('_')[1]:
+                    pinctrl_struct.append(instance['pinctrl'])
 
     #print pinctrl struct
     if len(pinctrl_struct):
@@ -1023,14 +1022,14 @@ def main():
 
   pprint.pprint(defs)
   pprint.pprint(structs)
-  # generate include file
-  #if args.keyvalue:
-  #  generate_keyvalue_file(args)
-  #elif args.structs:
-  #  generate_structs(args)
-  #  generate_structs_file(args, yaml_list)
-  #else:
-  #  generate_include_file(args)
+  #generate include file
+  if args.keyvalue:
+   generate_keyvalue_file(args)
+  elif args.structs:
+   generate_structs(args)
+   generate_structs_file(args, yaml_list)
+  else:
+   generate_include_file(args)
 
 if __name__ == '__main__':
     main()
