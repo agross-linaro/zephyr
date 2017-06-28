@@ -56,7 +56,7 @@
 
 			pinctrl-0 = <&uart1_default>;
                         pinctrl-1 = <&uart1_lp>;
-			pinctrl-names = "uart1_rx_tx";
+			pinctrl-names = "default", "sleep";
 		};
 
 		usart2: serial@40004400 {
