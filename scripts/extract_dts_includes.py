@@ -154,6 +154,9 @@ def insert_defs(node_address, new_defs, new_aliases):
 
 def insert_structs(node_address, deflabel, new_structs):
 
+    if isinstance(new_structs, list):
+        new_structs = new_structs[0]
+
     if node_address in structs:
         if deflabel in structs[node_address] and isinstance(structs[node_address][deflabel], dict):
             structs[node_address][deflabel].update(new_structs)
