@@ -723,15 +723,11 @@ def lookup_defs(defs, node, key):
 
 def print_struct_members(node_instance, node, yaml_list, instance_label=0):
 
-    cell_string = ""
-
     if node in yaml_list:
         node_yaml_props = yaml_list[node]['properties']
         # if 'pinctrl-\\d+' in node_yaml_props.keys():
         #     #rename property in something matching node_instance keys
         #     node_yaml_props['pinctrl'] = node_yaml_props.pop('pinctrl-\\d+')
-        if 'cell_string' in yaml_list[node].keys():
-            cell_string = str(yaml_list[node]['cell_string']) + "_"
 
     for k, v in node_instance[instance_label].items():
 
@@ -748,23 +744,22 @@ def print_struct_members(node_instance, node, yaml_list, instance_label=0):
                         # sys.stdout.write(str(cell_type) + " ")
                         # sys.stdout.write(str(k) + " " + str(v) + "\n")
                         sys.stdout.write("\t\t")
-                        sys.stdout.write("." + cell_string + convert_string_to_label(k) + " = {")
-                        if isinstance(v['data'], dict):
-                        #cells array have a name
-                            if len(v['data']) > 1:
-                            #only one label available
-
-                            #else:
-                                for i in range(0, len(v['data'])):
-                                    sys.stdout.write("\n\t\t\t\t")
-                                    sys.stdout.write("." + cell_string + convert_string_to_label(v['labels'][i]) + " = " + str(v['data'][i]) + ",")
-                                sys.stdout.write("\n\t\t")
+                        sys.stdout.write("." + convert_string_to_label(k) + " = {")
+                        if len(v['members']) > 1:
+                            for i in range(0, len(v['data'])):
+                                sys.stdout.write("\n\t\t\t\t")
+                                sys.stdout.write("." + convert_string_to_label(v['members'][i]) + " = " + str(v['data'][i]) + ",")
+                            sys.stdout.write("\n\t\t")
                         else:
+                            if len(v['members']) > 0:
+                                sys.stdout.write("\n\t\t\t\t ." + convert_string_to_label(str(v['members'])) + " = {")
                             for i in range(0, len(v['data'])):
                                 sys.stdout.write(str(v['data'][i]))
                                 if i != (len(v['data']) - 1):
                                     sys.stdout.write(" ,")
-                        sys.stdout.write("}\n")
+                            if len(v['members']) > 0:
+                                sys.stdout.write("},\n\t\t")
+                        sys.stdout.write("},\n")
 
                     elif 'int' == cell_type:
                         # sys.stdout.write("\t\t")
@@ -774,18 +769,19 @@ def print_struct_members(node_instance, node, yaml_list, instance_label=0):
                         #if isinstance(v['data'], int):
                         if len(v['data']) == 1:
                             sys.stdout.write("\t\t")
-                            sys.stdout.write("." + cell_string + convert_string_to_label(k) + " = " + str(v['data'][0]) + ",\n")
+                            sys.stdout.write("." + convert_string_to_label(k) + " = " + str(v['data'][0]) + ",\n")
                         else:
                             #If value is array and int expected, print values as int
                             for i in range(0, len(v['data'])):
                                 sys.stdout.write("\t\t")
-                                sys.stdout.write("." + cell_string + convert_string_to_label(k) + "_" + str(i) + " = " + str(v['data'][i]) + ",\n")
+                                sys.stdout.write("." + convert_string_to_label(k) + "_" + str(i) + " = " + str(v['data'][i]) + ",\n")
 
                     elif 'string' == cell_type:
+                        # sys.stdout.write("\t\t")
+                        # sys.stdout.write(str(cell_type) + " ")
+                        # sys.stdout.write(str(k) + " " + str(v['data']) + "\n")
                         sys.stdout.write("\t\t")
-                        sys.stdout.write(str(cell_type) + " ")
-                        sys.stdout.write(str(k) + " " + str(v['data']) + "\n")
-
+                        sys.stdout.write("." + convert_string_to_label(k) + "[" +  "] = " + str(v['data'][0]) + ",\n")
                     else:
                         raise Exception("Cell type not expected")
 
