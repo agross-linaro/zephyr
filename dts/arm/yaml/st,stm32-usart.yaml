@@ -53,6 +53,6 @@ properties:
                   - irq_config_func:
           - pclken: clocks
   - irq_config:
-...
+  - irq_config_flag: CONFIG_UART_INTERRUPT_DRIVEN
 
 ...
