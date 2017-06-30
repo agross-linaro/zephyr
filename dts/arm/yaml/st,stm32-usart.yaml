@@ -39,4 +39,20 @@ properties:
       category: required
       description: Clock gate control information
       generation: define
+
+
+"#driver_init":
+  - dev:
+  - data:
+          - huart:
+                  - Init:
+                          - Baudrate: current_speed
+  - config:
+          - uconf:
+                  - base: reg[0]
+                  - irq_config_func:
+          - pclken: clocks
+  - irq_config:
+...
+
 ...

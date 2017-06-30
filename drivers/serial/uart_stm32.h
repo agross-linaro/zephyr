@@ -13,14 +13,14 @@
 #define _STM32_UART_H_
 
 /* device config */
-struct uart_stm32_config {
+struct st_stm32_usart_config {
 	struct uart_device_config uconf;
 	/* clock subsystem driving this peripheral */
 	struct stm32_pclken pclken;
 };
 
 /* driver data */
-struct uart_stm32_data {
+struct st_stm32_usart_data {
 	/* Uart peripheral handler */
 	UART_HandleTypeDef huart;
 	/* clock device */
