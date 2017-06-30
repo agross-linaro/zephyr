@@ -20,17 +20,34 @@ static struct <dts/compatible>_data <dts/compatible>_data_<dts/label> = {
     }
 };
 
-DEVICE_AND_API_INIT(<dts/compatible>_dev_<dts/label>,  "<dts/label>",
+static struct <dts/compatible>_pinctrl <dts/compatible>_pinctrl_<dts/label> = {
+    .<yaml/pinctrl> = {
+    		.<pinctrl/pinctrl>
+        .<yaml/data/huart/Init> = {
+            .<yaml/data/huart/Init/Baudrate> = <dts/current_speed>,
+        }
+    }
+};
+
+DEVICE_AND_API_INIT(<dts/compatible>_dev_<dts/label>,
+            "<dts/label>",
             &<dts/compatible>_init,
-            &<dts/compatible>_data_<dts/label>, &<dts/compatible>_config_<dts/label>,
-            PRE_KERNEL_1, CONFIG_KERNEL_INIT_PRIORITY_DEVICE,
+            &<dts/compatible>_data_<dts/label>,
+	    &<dts/compatible>_config_<dts/label>,
+            PRE_KERNEL_1,
+	    CONFIG_KERNEL_INIT_PRIORITY_DEVICE,
             &<dts/compatible>_api);
 
 #ifdef <yaml/#driver_init/irq_config_flag>
 static void <dts/compatible>_irq_config_<dts/label>(struct device *dev)
 {
-    IRQ_CONNECT(<dts/interrupts.irq>, <dts/interrupts.prio>, <dts/compatible>_isr,
-	        DEVICE_GET(<dts/compatible>_dev_<dts/label>), 0);
-    irq_enable(<dts/interrupts.irq>);
+for i in <dts/range(0, len(<dts/"interrupt-names">)):
+    IRQ_CONNECT(<dts/interrupts[i].irq>,
+                <dts/interrupts[i].prio>,
+                <dts/compatible>_<dts/"interrupt-names"[i]>_isr,
+	        DEVICE_GET(<dts/compatible>_dev_<dts/label>),
+		0);
+    irq_enable(<dts/interrupts[i].irq>);
+
 }
 #endif

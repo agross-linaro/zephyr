@@ -372,11 +372,7 @@ static struct st_stm32_usart_config st_stm32_usart_config_UART_1 = {
 };
 
 static struct st_stm32_usart_data st_stm32_usart_data_UART_1 = {
-    .huart = {
-        .Init = {
-            .BaudRate = 115200,
-        }
-    }
+    .huart.Init.BaudRate = 115200,
 };
 
 DEVICE_AND_API_INIT(st_stm32_usart_dev_UART_1,  "UART_1",
