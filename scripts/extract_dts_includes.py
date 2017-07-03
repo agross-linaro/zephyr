@@ -962,7 +962,7 @@ def main():
   # collapse the yaml inherited information
   yaml_list = yaml_collapse(yaml_list)
 
-  defs = {}
+#  defs = {}
   structs = {}
   # load zephyr specific nodes
   flash = {}
