@@ -785,6 +785,13 @@ def print_struct_members(node_instance, node, yaml_list, instance_label=0):
                     else:
                         raise Exception("Cell type not expected")
 
+def print_driver_init_code(node_instance, node, yaml_list, instance_label=0):
+
+
+  
+
+
+
 def generate_structs_file(args, yaml_list):
     compatible = reduced['/']['props']['compatible'][0]
 
@@ -800,7 +807,7 @@ def generate_structs_file(args, yaml_list):
 
     pinctrl_struct = []
 
-    #print node structs
+    #print driver code init
     for node in struct_dict:
         sys.stdout.write("\n")
         struct_name = convert_string_to_label(node)
@@ -812,12 +819,14 @@ def generate_structs_file(args, yaml_list):
                 sys.stdout.write(instance_name)
                 sys.stdout.write(" = { \n")
                 print_struct_members(struct_dict[node], node, yaml_list, i)
+                print_driver_init_code(struct_dict[node], node, yaml_list, i)
                 sys.stdout.write("};\n\n")
                 i = i + 1
         else:
             sys.stdout.write(struct_name)
             sys.stdout.write(" = { \n")
             print_struct_members(struct_dict[node], node, yaml_list)
+            print_driver_init_code(struct_dict[node], node, yaml_list)
             sys.stdout.write("};\n\n")
 
     # generate pinctrl_struct
