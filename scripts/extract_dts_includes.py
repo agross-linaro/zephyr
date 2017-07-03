@@ -138,7 +138,7 @@ class Loader(yaml.Loader):
             with open(filepath, 'r') as f:
                 return yaml.load(f, Loader)
 
-def insert_defs(node_address, new_defs, new_aliases):
+def insert_defs(node_address, defs, new_defs, new_aliases):
   if node_address in defs:
     if 'aliases' in defs[node_address]:
       defs[node_address]['aliases'].update(new_aliases)
@@ -256,7 +256,7 @@ def extract_interrupts(node_address, yaml, y_key, names, def_label):
     prop_structs.append(cell_struct)
 
     index += 1
-    insert_defs(node_address, prop_def, prop_alias)
+    insert_defs(node_address, defs, prop_def, prop_alias)
   insert_structs(node_address, 'interrupts', prop_structs)
 
   return
@@ -327,7 +327,7 @@ def extract_reg_prop(node_address, names, defs, def_label, div, post_label):
     #prop_struct.append(hex(addr))
     #prop_struct.append(int(size/div))
 
-    insert_defs(node_address, prop_def, prop_alias)
+    insert_defs(node_address, defs, prop_def, prop_alias)
     insert_structs(node_address, 'reg', prop_struct)
 
     # increment index for definition creation
