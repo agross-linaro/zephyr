@@ -39,4 +39,25 @@ properties:
       category: required
       description: Clock gate control information
       generation: define
+
+"#driver_init":
+  - data:
+          - huart:
+                  - Init:
+                          - Baudrate:
+                                  - value: current_speed
+  - config:
+          - uconf:
+                  - base:
+                          - cast: (u8_t *)
+                          - value: reg[0]
+                  - irq_config_func:
+                          - value: interrupts
+          - pclken:
+                  - bus:
+                          - value: clocks[0]
+                  - enr:
+                          - value: clocks[1]
+  - irq_config_flag: CONFIG_UART_INTERRUPT_DRIVEN
+
 ...

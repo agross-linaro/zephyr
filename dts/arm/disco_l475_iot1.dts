@@ -22,6 +22,12 @@
 	current-speed = <115200>;
 	status = "ok";
 };
+
+&usart2 {
+	current-speed = <115200>;
+	status = "ok";
+};
+
 &flash0 {
 	partitions {
 		/*

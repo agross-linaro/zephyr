@@ -12,6 +12,8 @@ import argparse
 
 from devicetree import parse_file
 
+from copy import deepcopy
+
 # globals
 compatibles = {}
 phandles = {}
@@ -785,11 +787,142 @@ def print_struct_members(node_instance, node, yaml_list, instance_label=0):
                     else:
                         raise Exception("Cell type not expected")
 
-def print_driver_init_code(node_instance, node, yaml_list, instance_label=0):
 
+def get_member_value(value, node_instances, instance_number):
 
-  
+  prop_rank = 0
+  value_data = 0
 
+  value_split = value.split('[')
+  prop_name = value_split[0]
+  if len(value_split) > 1:
+    prop_rank = value_split[1].strip(']')
+
+  #sys.stdout.write(str(prop_name) + ", " + str(prop_rank))
+
+  node_properties_dict = deepcopy(node_instances[instance_number])
+
+  #prop_name is output of convert_string_to_label
+  #convert keys of node_instances[instance_number] dict for latter comparison
+  for k in node_properties_dict.keys():
+    node_properties_dict[convert_string_to_label(k)] = node_properties_dict.pop(k)
+
+  if prop_name in node_properties_dict.keys():
+    value_data = node_properties_dict[prop_name]['data'][int(prop_rank)]
+
+  return value_data
+
+def flatten_struct(iter, node_irq, node_instances, instance_number):
+
+  iter_dict = {}
+
+  if isinstance(iter, list):
+    for i in range(0, len(iter)):
+      iter_dict.update(iter[i])
+  else:
+    iter_dict = iter
+
+  if 'value' in iter_dict.keys():
+    cast = ""
+    if 'cast' in iter_dict.keys():
+       cast = iter_dict['cast']
+    if 'interrupts' == iter_dict['value']:
+      sys.stdout.write(node_irq['func'] + ",\n")
+      if node_irq['flag'] != {}:
+        sys.stdout.write("#endif /* " + node_irq['flag'] + " */\n")
+    else:
+      sys.stdout.write(str(cast) + str(get_member_value(iter_dict['value'], node_instances, instance_number)))
+    sys.stdout.write("},\n")
+    return
+
+  for k, v in iter_dict.items():
+    if 'irq_config_func' == k:
+      if node_irq['flag'] != {}:
+        sys.stdout.write("\n#ifdef " + node_irq['flag'] + "\n")
+      sys.stdout.write(".irq_config_func = ")
+    else:
+      sys.stdout.write(" {." + str(k) + " = ")
+
+    flatten_struct(v, node_irq, node_instances, instance_number)
+
+def print_driver_init_code(node_instances, node, yaml_list, instance_number=0):
+
+  irq_func= ""
+
+  #for now, don't treat if no label, or no yaml
+  if ('label' in node_instances[instance_number]) and (node in yaml_list):
+    pass
+  else :
+    return
+
+  node_yaml_props = yaml_list[node]['properties']
+
+  #get #driver_init struct as dict
+  driver_init_dict ={}
+  for i in range(0, len(yaml_list[node]['#driver_init'])):
+    #if 'irq_config_flag' not in yaml_list[node]['#driver_init'][i].keys():
+    driver_init_dict.update(yaml_list[node]['#driver_init'][i])
+
+  #local variables
+  node_compat = convert_string_to_label(node)
+  instance_label = str(node_instances[instance_number]['label']['data'][0]).strip('"')
+
+  #check in dts if this node has irqs
+  node_irq = {}
+  if 'interrupts' in node_instances[instance_number]:
+    node_irq['data'] = node_instances[instance_number]['interrupts']['data']
+    node_irq['func'] = node_compat + "_irq_config_" + instance_label
+
+    if 'irq_config_flag' in driver_init_dict.keys():
+      node_irq['flag'] = driver_init_dict['irq_config_flag']
+      sys.stdout.write("\n#ifdef " + node_irq['flag'] + "\n")
+
+    sys.stdout.write("static void " + node_irq['func'] + " (struct device * dev);\n")
+
+    if node_irq['flag'] != {}:
+      sys.stdout.write("#endif" + "/* " + node_irq['flag'] + " */\n\n")
+
+  # print _data_ / _config_ structs if present
+  if len(driver_init_dict.items()) > 0:
+    for k, v in driver_init_dict.items():
+      if k != 'irq_config_flag':
+        sys.stdout.write("\nstatic struct " + node_compat + "_" +  str(k) + "_" + instance_label + " = {\n")
+
+        for i in range(0, len(v)):
+          # v[i] is a dict to iter in
+          flatten_struct(v[i], node_irq, node_instances, instance_number)
+        sys.stdout.write("};\n\n")
+
+  # print DEVICE_AND_API_INIT struct
+  sys.stdout.write("DEVICE_AND_API_INIT(" + node_compat + "_dev_" + instance_label + ",\n")
+  sys.stdout.write('\t\t"' + instance_label + '",\n')
+  sys.stdout.write('\t\t&' + node_compat + '_init,\n')
+  sys.stdout.write('\t\t&' + node_compat + '_data_' + instance_label + ',\n')
+  sys.stdout.write('\t\t&' + node_compat + '_config_' + instance_label + ',\n')
+  sys.stdout.write('\t\tPRE_KERNEL_1,\n')
+  sys.stdout.write('\t\tCONFIG_KERNEL_INIT_PRIORITY_DEVICE,\n')
+  sys.stdout.write('\t\t&' + node_compat + '_api);\n')
+
+  # print _irq_func_ if needed
+  if node_irq !={}:
+    if 'flag' in node_irq.keys():
+      sys.stdout.write("\n#ifdef " + node_irq['flag'] + "\n")
+
+    sys.stdout.write("static void " + node_irq['func'] + " (struct device * dev)\n")
+    sys.stdout.write("{\n")
+    sys.stdout.write("\n")
+    for i in range(0, int(len(node_irq['data'])/2)):
+      sys.stdout.write("IRQ_CONNECT(" + str(node_irq['data'][2*i]) + " ," + str(node_irq['data'][2*i + 1]) + ",\n")
+      if 'interrupts-name' in node_instances[instance_number].keys():
+        sys.stdout.write("\t\t" + node_compat + "_" + str(node_instances[instance_number]['interrupts-name']['data'][i]).strip('"') + ",\n")
+      else:
+        sys.stdout.write("\t\t" + node_compat + "_isr" + ",\n")
+      sys.stdout.write("\t\tDEVICE_GET(" + node_compat + '_dev_' + instance_label + "),\n")
+      sys.stdout.write("\t\t0);\n")
+      sys.stdout.write("irq_connect(" + str(node_irq['data'][2*i]) + ");\n")
+      sys.stdout.write("}\n")
+    if 'flag' in node_irq.keys():
+      sys.stdout.write("#endif" + "/* " + node_irq['flag'] + " */\n\n")
 
 
 def generate_structs_file(args, yaml_list):
@@ -805,56 +938,19 @@ def generate_structs_file(args, yaml_list):
     sys.stdout.write("#define _DEVICE_TREE_STRUCTS_H" + "\n");
     sys.stdout.write("\n")
 
-    pinctrl_struct = []
-
     #print driver code init
     for node in struct_dict:
         sys.stdout.write("\n")
-        struct_name = convert_string_to_label(node)
 
         if len(struct_dict[node]) > 1:
             i = 0
             for instance in (struct_dict[node]):
-                instance_name= struct_name + '_' + instance['label']['data'][0].strip('"')
-                sys.stdout.write(instance_name)
-                sys.stdout.write(" = { \n")
-                print_struct_members(struct_dict[node], node, yaml_list, i)
                 print_driver_init_code(struct_dict[node], node, yaml_list, i)
-                sys.stdout.write("};\n\n")
                 i = i + 1
         else:
-            sys.stdout.write(struct_name)
-            sys.stdout.write(" = { \n")
-            print_struct_members(struct_dict[node], node, yaml_list)
             print_driver_init_code(struct_dict[node], node, yaml_list)
-            sys.stdout.write("};\n\n")
 
-    # generate pinctrl_struct
-    for node in struct_dict:
-        for instance in (struct_dict[node]):
-            if 'pinctrl' in instance:
-                #keep only _default pinctrl nodes (The one selected for boot time)
-                if 'default' == instance['pinctrl']['members'].split('_')[1]:
-                    pinctrl_struct.append(instance['pinctrl'])
-
-    #print pinctrl struct
-    if len(pinctrl_struct):
-        sys.stdout.write("static struct pin_config")
-        sys.stdout.write(" " + pinctrl_struct[0]['struct name']) #assume all pinctrl have same struct name
-        sys.stdout.write(" = ")
-        sys.stdout.write("{ \n")
-
-        for value in range(0, len(pinctrl_struct)):
-             for pin_number in range(0, int(len(pinctrl_struct[value]['data'])/2)):
-                 sys.stdout.write("\t\t\t{")
-                 sys.stdout.write(str(pinctrl_struct[value]['data'][pin_number]))
-                 sys.stdout.write(", " + str(pinctrl_struct[value]['data'][2*pin_number+1]))
-                 sys.stdout.write("},\n")
-
-        sys.stdout.write("}; \n")
-
-
-
+    # TODO: generate pinctrl_struct
 
     sys.stdout.write("\n#endif\n")
 
