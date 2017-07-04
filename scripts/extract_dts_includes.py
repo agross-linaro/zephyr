@@ -23,6 +23,7 @@ reduced = {}
 defs = {}
 structs = {}
 struct_dict = {}
+node_init_file = ""
 
 def convert_string_to_label(s):
   # Transmute ,- to _
@@ -798,8 +799,6 @@ def get_member_value(value, node_instances, instance_number):
   if len(value_split) > 1:
     prop_rank = value_split[1].strip(']')
 
-  #sys.stdout.write(str(prop_name) + ", " + str(prop_rank))
-
   node_properties_dict = deepcopy(node_instances[instance_number])
 
   #prop_name is output of convert_string_to_label
@@ -827,21 +826,21 @@ def flatten_struct(iter, node_irq, node_instances, instance_number):
     if 'cast' in iter_dict.keys():
        cast = iter_dict['cast']
     if 'interrupts' == iter_dict['value']:
-      sys.stdout.write(node_irq['func'] + ",\n")
+      write_node_file(node_irq['func'] + ",\n")
       if node_irq['flag'] != {}:
-        sys.stdout.write("#endif /* " + node_irq['flag'] + " */\n")
+        write_node_file("#endif /* " + node_irq['flag'] + " */\n")
     else:
-      sys.stdout.write(str(cast) + str(get_member_value(iter_dict['value'], node_instances, instance_number)))
-    sys.stdout.write("},\n")
+      write_node_file(str(cast) + str(get_member_value(iter_dict['value'], node_instances, instance_number)))
+    write_node_file("},\n")
     return
 
   for k, v in iter_dict.items():
     if 'irq_config_func' == k:
       if node_irq['flag'] != {}:
-        sys.stdout.write("\n#ifdef " + node_irq['flag'] + "\n")
-      sys.stdout.write(".irq_config_func = ")
+        write_node_file("\n#ifdef " + node_irq['flag'] + "\n")
+      write_node_file(".irq_config_func = ")
     else:
-      sys.stdout.write(" {." + str(k) + " = ")
+      write_node_file(" {." + str(k) + " = ")
 
     flatten_struct(v, node_irq, node_instances, instance_number)
 
@@ -875,84 +874,124 @@ def print_driver_init_code(node_instances, node, yaml_list, instance_number=0):
 
     if 'irq_config_flag' in driver_init_dict.keys():
       node_irq['flag'] = driver_init_dict['irq_config_flag']
-      sys.stdout.write("\n#ifdef " + node_irq['flag'] + "\n")
+      write_node_file("\n#ifdef " + node_irq['flag'] + "\n")
 
-    sys.stdout.write("static void " + node_irq['func'] + " (struct device * dev);\n")
+    write_node_file("static void " + node_irq['func'] + " (struct device * dev);\n")
 
     if node_irq['flag'] != {}:
-      sys.stdout.write("#endif" + "/* " + node_irq['flag'] + " */\n\n")
+      write_node_file("#endif" + "/* " + node_irq['flag'] + " */\n\n")
 
   # print _data_ / _config_ structs if present
   if len(driver_init_dict.items()) > 0:
     for k, v in driver_init_dict.items():
       if k != 'irq_config_flag':
-        sys.stdout.write("\nstatic struct " + node_compat + "_" +  str(k) + "_" + instance_label + " = {\n")
+        write_node_file("\nstatic struct " + node_compat + "_" +  str(k) + "_" + instance_label + " = {\n")
 
         for i in range(0, len(v)):
           # v[i] is a dict to iter in
           flatten_struct(v[i], node_irq, node_instances, instance_number)
-        sys.stdout.write("};\n\n")
+        write_node_file("};\n\n")
 
   # print DEVICE_AND_API_INIT struct
-  sys.stdout.write("DEVICE_AND_API_INIT(" + node_compat + "_dev_" + instance_label + ",\n")
-  sys.stdout.write('\t\t"' + instance_label + '",\n')
-  sys.stdout.write('\t\t&' + node_compat + '_init,\n')
-  sys.stdout.write('\t\t&' + node_compat + '_data_' + instance_label + ',\n')
-  sys.stdout.write('\t\t&' + node_compat + '_config_' + instance_label + ',\n')
-  sys.stdout.write('\t\tPRE_KERNEL_1,\n')
-  sys.stdout.write('\t\tCONFIG_KERNEL_INIT_PRIORITY_DEVICE,\n')
-  sys.stdout.write('\t\t&' + node_compat + '_api);\n')
+  write_node_file("DEVICE_AND_API_INIT(" + node_compat + "_dev_" + instance_label + ",\n")
+  write_node_file('\t\t"' + instance_label + '",\n')
+  write_node_file('\t\t&' + node_compat + '_init,\n')
+  write_node_file('\t\t&' + node_compat + '_data_' + instance_label + ',\n')
+  write_node_file('\t\t&' + node_compat + '_config_' + instance_label + ',\n')
+  write_node_file('\t\tPRE_KERNEL_1,\n')
+  write_node_file('\t\tCONFIG_KERNEL_INIT_PRIORITY_DEVICE,\n')
+  write_node_file('\t\t&' + node_compat + '_api);\n')
 
   # print _irq_func_ if needed
   if node_irq !={}:
     if 'flag' in node_irq.keys():
-      sys.stdout.write("\n#ifdef " + node_irq['flag'] + "\n")
+      write_node_file("\n#ifdef " + node_irq['flag'] + "\n")
 
-    sys.stdout.write("static void " + node_irq['func'] + " (struct device * dev)\n")
-    sys.stdout.write("{\n")
-    sys.stdout.write("\n")
+    write_node_file("static void " + node_irq['func'] + " (struct device * dev)\n")
+    write_node_file("{\n")
+    write_node_file("\n")
     for i in range(0, int(len(node_irq['data'])/2)):
-      sys.stdout.write("IRQ_CONNECT(" + str(node_irq['data'][2*i]) + " ," + str(node_irq['data'][2*i + 1]) + ",\n")
+      write_node_file("IRQ_CONNECT(" + str(node_irq['data'][2*i]) + " ," + str(node_irq['data'][2*i + 1]) + ",\n")
       if 'interrupts-name' in node_instances[instance_number].keys():
-        sys.stdout.write("\t\t" + node_compat + "_" + str(node_instances[instance_number]['interrupts-name']['data'][i]).strip('"') + ",\n")
+        write_node_file("\t\t" + node_compat + "_" + str(node_instances[instance_number]['interrupts-name']['data'][i]).strip('"') + ",\n")
       else:
-        sys.stdout.write("\t\t" + node_compat + "_isr" + ",\n")
-      sys.stdout.write("\t\tDEVICE_GET(" + node_compat + '_dev_' + instance_label + "),\n")
-      sys.stdout.write("\t\t0);\n")
-      sys.stdout.write("irq_connect(" + str(node_irq['data'][2*i]) + ");\n")
-      sys.stdout.write("}\n")
+        write_node_file("\t\t" + node_compat + "_isr" + ",\n")
+      write_node_file("\t\tDEVICE_GET(" + node_compat + '_dev_' + instance_label + "),\n")
+      write_node_file("\t\t0);\n")
+      write_node_file("irq_connect(" + str(node_irq['data'][2*i]) + ");\n")
+      write_node_file("}\n")
     if 'flag' in node_irq.keys():
-      sys.stdout.write("#endif" + "/* " + node_irq['flag'] + " */\n\n")
+      write_node_file("#endif" + "/* " + node_irq['flag'] + " */\n\n")
+
+def write_node_file(str):
+
+  global file
+  sys.stdout.write(str)
+
+  if file != "":
+    file.write(str)
+  else:
+    raise Exception("Output file does not exist.")
 
 
 def generate_structs_file(args, yaml_list):
-    compatible = reduced['/']['props']['compatible'][0]
 
-    sys.stdout.write("/**************************************************\n")
-    sys.stdout.write(" * Generated include file for " + compatible)
-    sys.stdout.write("\n")
-    sys.stdout.write(" *               DO NOT MODIFY\n");
-    sys.stdout.write(" */\n")
-    sys.stdout.write("\n")
-    sys.stdout.write("#ifndef _DEVICE_TREE_STRUCTS_H" + "\n");
-    sys.stdout.write("#define _DEVICE_TREE_STRUCTS_H" + "\n");
-    sys.stdout.write("\n")
+    global file
+    compatible = reduced['/']['props']['compatible'][0]
 
     #print driver code init
     for node in struct_dict:
+
+        dts_path = str(args.dts).split('/')[:-3]
+        outdir_path = '/'.join(dts_path)
         sys.stdout.write("\n")
+        if 'zephyr-driver' in yaml_list[node].keys():
+          node_init_file_path = str(outdir_path) + '/include/generated/driver/' + str(yaml_list[node]['zephyr-driver'] + '/')
+          sys.stdout.write(node_init_file_path + "\n")
+        else:
+          continue
+
+        node_init_file = node_init_file_path + convert_string_to_label(node) + '_init.c'
+        sys.stdout.write("file:" + node_init_file + "\n")
+
+        #code from stackoverflow
+        if not os.path.exists(os.path.dirname(node_init_file)):
+          try:
+            os.makedirs(os.path.dirname(node_init_file))
+          except OSError as exc:  # Guard against race condition
+            if exc.errno != errno.EEXIST:
+              raise
+
+        file = open(node_init_file, 'w')
+
+        sys.stdout.write("\n")
+
+        write_node_file("/**************************************************\n")
+        write_node_file(" * Generated include file for " + node)
+        write_node_file("\n")
+        write_node_file(" *               DO NOT MODIFY\n");
+        write_node_file(" */\n")
+        write_node_file("\n")
+        write_node_file("#ifndef _" + convert_string_to_label(node).upper() + "_H \n");
+        write_node_file("#define _" + convert_string_to_label(node).upper() + "_H \n");
+        write_node_file("\n")
 
         if len(struct_dict[node]) > 1:
             i = 0
             for instance in (struct_dict[node]):
+
                 print_driver_init_code(struct_dict[node], node, yaml_list, i)
                 i = i + 1
         else:
             print_driver_init_code(struct_dict[node], node, yaml_list)
 
+        write_node_file("\n#endif /* _" + convert_string_to_label(node).upper() + "_H */ \n")
+        node_init_file = ""
+        file.close()
+
     # TODO: generate pinctrl_struct
 
-    sys.stdout.write("\n#endif\n")
+
 
 
 def generate_structs(args):

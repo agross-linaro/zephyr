@@ -1,7 +1,9 @@
 ---
 title: STM32 USART
 id: st,stm32-usart
+zephyr-driver: serial
 version: 0.1
+
 
 description: >
     This binding gives a base representation of the STM32 USART
