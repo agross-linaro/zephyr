@@ -387,7 +387,7 @@ def extract_cells(node_address, yaml, y_key, names, index, prefix, def_label):
           prop_alias['_'.join(label[:-1])] = '_'.join(label)
           cell_struct['defs']['aliases'].append({'_'.join(label[:-1]): '_'.join(label)})
 
-    insert_defs(node_address, prop_def, prop_alias)
+    insert_defs(node_address, defs, prop_def, prop_alias)
     insert_structs(node_address, cell_yaml.get('cell_string'), cell_struct)
 
   # recurse if we have anything left
@@ -472,7 +472,7 @@ def extract_pinctrl(node_address, yaml, pinconf, names, index, def_label):
     prop_struct.append(cell_struct)
 
 
-  insert_defs(node_address, prop_def, {})
+  insert_defs(node_address, defs, prop_def, {})
   insert_structs(node_address, 'pinctrl', prop_struct)
 
 def extract_single(node_address, yaml, prop, key, prefix, def_label):
