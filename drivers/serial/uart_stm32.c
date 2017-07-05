@@ -27,12 +27,13 @@
 #include <linker/sections.h>
 #include <clock_control/stm32_clock_control.h>
 #include "uart_stm32.h"
+#include <st_stm32_usart_init.h>
 
 /* convenience defines */
 #define DEV_CFG(dev)							\
-	((const struct uart_stm32_config * const)(dev)->config->config_info)
+	((const struct st_stm32_usart_config * const)(dev)->config->config_info)
 #define DEV_DATA(dev)							\
-	((struct uart_stm32_data * const)(dev)->driver_data)
+	((struct st_stm32_usart_data * const)(dev)->driver_data)
 #define UART_STRUCT(dev)					\
 	((USART_TypeDef *)(DEV_CFG(dev))->uconf.base)
 
@@ -40,7 +41,7 @@
 
 static int uart_stm32_poll_in(struct device *dev, unsigned char *c)
 {
-	struct uart_stm32_data *data = DEV_DATA(dev);
+	struct st_stm32_usart_data *data = DEV_DATA(dev);
 	UART_HandleTypeDef *UartHandle = &data->huart;
 
 	if (HAL_UART_Receive(UartHandle, (u8_t *)c, 1, TIMEOUT) == HAL_OK) {
@@ -53,7 +54,7 @@ static int uart_stm32_poll_in(struct device *dev, unsigned char *c)
 static unsigned char uart_stm32_poll_out(struct device *dev,
 					unsigned char c)
 {
-	struct uart_stm32_data *data = DEV_DATA(dev);
+	struct st_stm32_usart_data *data = DEV_DATA(dev);
 	UART_HandleTypeDef *UartHandle = &data->huart;
 
 	HAL_UART_Transmit(UartHandle, (u8_t *)&c, 1, TIMEOUT);
@@ -63,7 +64,7 @@ static unsigned char uart_stm32_poll_out(struct device *dev,
 
 static inline void __uart_stm32_get_clock(struct device *dev)
 {
-	struct uart_stm32_data *data = DEV_DATA(dev);
+	struct st_stm32_usart_data *data = DEV_DATA(dev);
 	struct device *clk =
 		device_get_binding(STM32_CLOCK_CONTROL_NAME);
 
@@ -77,7 +78,7 @@ static inline void __uart_stm32_get_clock(struct device *dev)
 static int uart_stm32_fifo_fill(struct device *dev, const u8_t *tx_data,
 				  int size)
 {
-	struct uart_stm32_data *data = DEV_DATA(dev);
+	struct st_stm32_usart_data *data = DEV_DATA(dev);
 	UART_HandleTypeDef *UartHandle = &data->huart;
 	u8_t num_tx = 0;
 
@@ -103,7 +104,7 @@ static int uart_stm32_fifo_fill(struct device *dev, const u8_t *tx_data,
 static int uart_stm32_fifo_read(struct device *dev, u8_t *rx_data,
 				  const int size)
 {
-	struct uart_stm32_data *data = DEV_DATA(dev);
+	struct st_stm32_usart_data *data = DEV_DATA(dev);
 	UART_HandleTypeDef *UartHandle = &data->huart;
 	u8_t num_rx = 0;
 
@@ -128,7 +129,7 @@ static int uart_stm32_fifo_read(struct device *dev, u8_t *rx_data,
 
 static void uart_stm32_irq_tx_enable(struct device *dev)
 {
-	struct uart_stm32_data *data = DEV_DATA(dev);
+	struct st_stm32_usart_data *data = DEV_DATA(dev);
 	UART_HandleTypeDef *UartHandle = &data->huart;
 
 	__HAL_UART_ENABLE_IT(UartHandle, UART_IT_TC);
@@ -136,7 +137,7 @@ static void uart_stm32_irq_tx_enable(struct device *dev)
 
 static void uart_stm32_irq_tx_disable(struct device *dev)
 {
-	 struct uart_stm32_data *data = DEV_DATA(dev);
+	 struct st_stm32_usart_data *data = DEV_DATA(dev);
 	 UART_HandleTypeDef *UartHandle = &data->huart;
 
 	__HAL_UART_DISABLE_IT(UartHandle, UART_IT_TC);
@@ -144,7 +145,7 @@ static void uart_stm32_irq_tx_disable(struct device *dev)
 
 static int uart_stm32_irq_tx_ready(struct device *dev)
 {
-	struct uart_stm32_data *data = DEV_DATA(dev);
+	struct st_stm32_usart_data *data = DEV_DATA(dev);
 	UART_HandleTypeDef *UartHandle = &data->huart;
 
 	return __HAL_UART_GET_FLAG(UartHandle, UART_FLAG_TXE);
@@ -152,7 +153,7 @@ static int uart_stm32_irq_tx_ready(struct device *dev)
 
 static int uart_stm32_irq_tx_complete(struct device *dev)
 {
-	struct uart_stm32_data *data = DEV_DATA(dev);
+	struct st_stm32_usart_data *data = DEV_DATA(dev);
 	UART_HandleTypeDef *UartHandle = &data->huart;
 
 	return __HAL_UART_GET_FLAG(UartHandle, UART_FLAG_TXE);
@@ -160,7 +161,7 @@ static int uart_stm32_irq_tx_complete(struct device *dev)
 
 static void uart_stm32_irq_rx_enable(struct device *dev)
 {
-	struct uart_stm32_data *data = DEV_DATA(dev);
+	struct st_stm32_usart_data *data = DEV_DATA(dev);
 	UART_HandleTypeDef *UartHandle = &data->huart;
 
 	__HAL_UART_ENABLE_IT(UartHandle, UART_IT_RXNE);
@@ -168,7 +169,7 @@ static void uart_stm32_irq_rx_enable(struct device *dev)
 
 static void uart_stm32_irq_rx_disable(struct device *dev)
 {
-	struct uart_stm32_data *data = DEV_DATA(dev);
+	struct st_stm32_usart_data *data = DEV_DATA(dev);
 	UART_HandleTypeDef *UartHandle = &data->huart;
 
 	__HAL_UART_DISABLE_IT(UartHandle, UART_IT_RXNE);
@@ -176,7 +177,7 @@ static void uart_stm32_irq_rx_disable(struct device *dev)
 
 static int uart_stm32_irq_rx_ready(struct device *dev)
 {
-	struct uart_stm32_data *data = DEV_DATA(dev);
+	struct st_stm32_usart_data *data = DEV_DATA(dev);
 	UART_HandleTypeDef *UartHandle = &data->huart;
 
 	return __HAL_UART_GET_FLAG(UartHandle, UART_FLAG_RXNE);
@@ -184,7 +185,7 @@ static int uart_stm32_irq_rx_ready(struct device *dev)
 
 static void uart_stm32_irq_err_enable(struct device *dev)
 {
-	struct uart_stm32_data *data = DEV_DATA(dev);
+	struct st_stm32_usart_data *data = DEV_DATA(dev);
 	UART_HandleTypeDef *UartHandle = &data->huart;
 
 	/* Enable FE, ORE interruptions */
@@ -197,7 +198,7 @@ static void uart_stm32_irq_err_enable(struct device *dev)
 
 static void uart_stm32_irq_err_disable(struct device *dev)
 {
-	struct uart_stm32_data *data = DEV_DATA(dev);
+	struct st_stm32_usart_data *data = DEV_DATA(dev);
 	UART_HandleTypeDef *UartHandle = &data->huart;
 
 	/* Disable FE, ORE interruptions */
@@ -210,7 +211,7 @@ static void uart_stm32_irq_err_disable(struct device *dev)
 
 static int uart_stm32_irq_is_pending(struct device *dev)
 {
-	struct uart_stm32_data *data = DEV_DATA(dev);
+	struct st_stm32_usart_data *data = DEV_DATA(dev);
 	UART_HandleTypeDef *UartHandle = &data->huart;
 
 	return __HAL_UART_GET_FLAG(UartHandle, UART_FLAG_TXE | UART_FLAG_RXNE);
@@ -224,15 +225,15 @@ static int uart_stm32_irq_update(struct device *dev)
 static void uart_stm32_irq_callback_set(struct device *dev,
 					uart_irq_callback_t cb)
 {
-	struct uart_stm32_data *data = DEV_DATA(dev);
+	struct st_stm32_usart_data *data = DEV_DATA(dev);
 
 	data->user_cb = cb;
 }
 
-static void uart_stm32_isr(void *arg)
+static void st_stm32_usart_isr(void *arg)
 {
 	struct device *dev = arg;
-	struct uart_stm32_data *data = DEV_DATA(dev);
+	struct st_stm32_usart_data *data = DEV_DATA(dev);
 
 	if (data->user_cb) {
 		data->user_cb(dev);
@@ -241,7 +242,7 @@ static void uart_stm32_isr(void *arg)
 
 #endif /* CONFIG_UART_INTERRUPT_DRIVEN */
 
-static const struct uart_driver_api uart_stm32_driver_api = {
+static const struct uart_driver_api st_stm32_usart_api = {
 	.poll_in = uart_stm32_poll_in,
 	.poll_out = uart_stm32_poll_out,
 #ifdef CONFIG_UART_INTERRUPT_DRIVEN
@@ -272,10 +273,10 @@ static const struct uart_driver_api uart_stm32_driver_api = {
  *
  * @return 0
  */
-static int uart_stm32_init(struct device *dev)
+static int st_stm32_usart_init(struct device *dev)
 {
-	const struct uart_stm32_config *config = DEV_CFG(dev);
-	struct uart_stm32_data *data = DEV_DATA(dev);
+	const struct st_stm32_usart_config *config = DEV_CFG(dev);
+	struct st_stm32_usart_data *data = DEV_DATA(dev);
 	UART_HandleTypeDef *UartHandle = &data->huart;
 
 	__uart_stm32_get_clock(dev);
@@ -299,6 +300,7 @@ static int uart_stm32_init(struct device *dev)
 	return 0;
 }
 
+#if 0
 /* Define clocks */
 	#define STM32_CLOCK_UART(type, apb, n)				\
 		.pclken = { .bus = STM32_CLOCK_BUS_ ## apb,		\
@@ -327,7 +329,7 @@ static void uart_stm32_irq_config_func_##n(struct device *dev)		\
 #define UART_DEVICE_INIT_STM32(type, n, apb)				\
 STM32_UART_IRQ_HANDLER_DECL(n);						\
 									\
-static const struct uart_stm32_config uart_stm32_dev_cfg_##n = {	\
+static const struct st_stm32_usart_config uart_stm32_dev_cfg_##n = {	\
 	.uconf = {							\
 		.base = (u8_t *)CONFIG_UART_STM32_PORT_ ## n ## _BASE_ADDRESS, \
 		STM32_UART_IRQ_HANDLER_FUNC(n)				\
@@ -335,7 +337,7 @@ static const struct uart_stm32_config uart_stm32_dev_cfg_##n = {	\
 	STM32_CLOCK_UART(type, apb, n),					\
 };									\
 									\
-static struct uart_stm32_data uart_stm32_dev_data_##n = {		\
+static struct st_stm32_usart_data uart_stm32_dev_data_##n = {		\
 	.huart = {							\
 		.Init = {						\
 			.BaudRate = CONFIG_UART_STM32_PORT_##n##_BAUD_RATE     \
@@ -351,6 +353,48 @@ DEVICE_AND_API_INIT(uart_stm32_##n, CONFIG_UART_STM32_PORT_##n##_NAME,	\
 									\
 STM32_UART_IRQ_HANDLER(n)
 
+// #else
+
+#ifdef CONFIG_UART_INTERRUPT_DRIVEN
+static void st_stm32_usart_irq_config_UART_1(struct device *dev);
+#endif
+
+static struct st_stm32_usart_config st_stm32_usart_config_UART_1 = {
+	.uconf = {
+		.base = (u8_t *)0x40013800,
+#ifdef CONFIG_UART_INTERRUPT_DRIVEN
+		.irq_config_func = st_stm32_usart_irq_config_UART_1,
+#endif
+		},
+	.pclken = {
+		.bus = STM32_CLOCK_BUS_APB2,
+		.enr = LL_APB2_GRP1_PERIPH_USART1,
+	},
+};
+
+static struct st_stm32_usart_data st_stm32_usart_data_UART_1 = {
+    .huart.Init.BaudRate = 115200,
+};
+
+DEVICE_AND_API_INIT(st_stm32_usart_dev_UART_1,  "UART_1",
+            &st_stm32_usart_init,
+            &st_stm32_usart_data_UART_1, &st_stm32_usart_config_UART_1,
+            PRE_KERNEL_1, CONFIG_KERNEL_INIT_PRIORITY_DEVICE,
+            &st_stm32_usart_api);
+
+#ifdef CONFIG_UART_INTERRUPT_DRIVEN
+static void st_stm32_usart_irq_config_UART_1(struct device *dev)
+{
+    IRQ_CONNECT(37, 0, st_stm32_usart_isr,
+	        DEVICE_GET(st_stm32_usart_dev_UART_1), 0);
+    irq_enable(37);
+}
+#endif
+
+#endif
+
+
+#if 0
 #ifdef CONFIG_UART_STM32_PORT_1
 UART_DEVICE_INIT_STM32(USART, 1, APB2)
 #endif	/* CONFIG_UART_STM32_PORT_1 */
@@ -390,3 +434,5 @@ UART_DEVICE_INIT_STM32(UART, 9, APB2)
 #ifdef CONFIG_UART_STM32_PORT_10
 UART_DEVICE_INIT_STM32(UART, 10, APB2)
 #endif /* CONFIG_UART_STM32_PORT_10 */
+
+#endif
