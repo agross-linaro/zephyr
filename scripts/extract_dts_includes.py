@@ -24,9 +24,7 @@ defs = {}
 structs = {}
 struct_dict = {}
 node_init_file = ""
-tab = 0
-brace = 0
-iter_count = 0
+sub_struct_count = 0
 
 def convert_string_to_label(s):
   # Transmute ,- to _
@@ -814,48 +812,34 @@ def get_member_value(value, node_instances, instance_number):
 
   return value_data
 
-def reset_indent():
-
-  global tab
-  tab = 0
-
-def indent_right():
-
-  global tab
-  tab += 1
-
-def indent_left():
-
-  global tab
-  tab -= 1
-
 def insert_tab():
 
-  global tab
-  for i in range(0, tab):
+  global sub_struct_count
+  for i in range(0, sub_struct_count):
     write_node_file("\t")
 
 def open_brace():
 
-  global brace
-  brace = brace + 1
+  global sub_struct_count
 
+  sub_struct_count += 1
   write_node_file("{\n")
 
 def close_brace():
 
-  global brace
-  brace = brace - 1
+  global sub_struct_count
 
-  if brace > 0:
+  sub_struct_count -= 1
+  insert_tab()
+
+  if sub_struct_count > 0:
     write_node_file("},\n")
   else:
     #ending brace
-    write_node_file("\n}")
+    write_node_file("}")
 
 def flatten_struct(iter, node_irq, node_instances, instance_number):
 
-  global iter_count
   iter_dict = {}
 
   if isinstance(iter, list):
@@ -878,9 +862,6 @@ def flatten_struct(iter, node_irq, node_instances, instance_number):
 
   #not a value, prepare a new sub struct
   open_brace()
-  indent_right()
-  iter_count = iter_count + 1
-  #write_node_file("entered_sub_struct " + str(iter_count))
 
   for k, v in iter_dict.items():
     if 'irq_config_func' == k:
@@ -894,11 +875,7 @@ def flatten_struct(iter, node_irq, node_instances, instance_number):
 
     flatten_struct(v, node_irq, node_instances, instance_number)
 
-  indent_left()
-  insert_tab()
   close_brace()
-  #write_node_file("exited_sub_struct " + str(iter_count))
-  iter_count = iter_count - 1
 
 def print_driver_init_code(node_instances, node, yaml_list, instance_number=0):
 
@@ -942,21 +919,18 @@ def print_driver_init_code(node_instances, node, yaml_list, instance_number=0):
     for k, v in driver_init_dict.items():
       if k != 'irq_config_flag':
         write_node_file("\nstatic struct " + node_compat + "_" +  str(k) + "_" + instance_label + " = ")
-        for i in range(0, len(v)):
-          # v[i] is a dict to iter in
-          flatten_struct(v[i], node_irq, node_instances, instance_number)
-        reset_indent()
+        flatten_struct(v, node_irq, node_instances, instance_number)
         write_node_file(";\n\n")
 
   # print DEVICE_AND_API_INIT struct
   write_node_file("DEVICE_AND_API_INIT(" + node_compat + "_dev_" + instance_label + ",\n")
-  write_node_file('\t\t"' + instance_label + '",\n')
-  write_node_file('\t\t&' + node_compat + '_init,\n')
-  write_node_file('\t\t&' + node_compat + '_data_' + instance_label + ',\n')
-  write_node_file('\t\t&' + node_compat + '_config_' + instance_label + ',\n')
-  write_node_file('\t\tPRE_KERNEL_1,\n')
-  write_node_file('\t\tCONFIG_KERNEL_INIT_PRIORITY_DEVICE,\n')
-  write_node_file('\t\t&' + node_compat + '_api);\n')
+  write_node_file('\t\t    "' + instance_label + '",\n')
+  write_node_file('\t\t    &' + node_compat + '_init,\n')
+  write_node_file('\t\t    &' + node_compat + '_data_' + instance_label + ',\n')
+  write_node_file('\t\t    &' + node_compat + '_config_' + instance_label + ',\n')
+  write_node_file('\t\t    PRE_KERNEL_1,\n')
+  write_node_file('\t\t    CONFIG_KERNEL_INIT_PRIORITY_DEVICE,\n')
+  write_node_file('\t\t    &' + node_compat + '_api);\n')
 
   # print _irq_func_ if needed
   if node_irq !={}:
@@ -969,11 +943,11 @@ def print_driver_init_code(node_instances, node, yaml_list, instance_number=0):
     for i in range(0, int(len(node_irq['data'])/2)):
       write_node_file("IRQ_CONNECT(" + str(node_irq['data'][2*i]) + " ," + str(node_irq['data'][2*i + 1]) + ",\n")
       if 'interrupts-name' in node_instances[instance_number].keys():
-        write_node_file("\t\t" + node_compat + "_" + str(node_instances[instance_number]['interrupts-name']['data'][i]).strip('"') + ",\n")
+        write_node_file("\t    " + node_compat + "_" + str(node_instances[instance_number]['interrupts-name']['data'][i]).strip('"') + ",\n")
       else:
-        write_node_file("\t\t" + node_compat + "_isr" + ",\n")
-      write_node_file("\t\tDEVICE_GET(" + node_compat + '_dev_' + instance_label + "),\n")
-      write_node_file("\t\t0);\n")
+        write_node_file("\t    " + node_compat + "_isr" + ",\n")
+      write_node_file("\t    DEVICE_GET(" + node_compat + '_dev_' + instance_label + "),\n")
+      write_node_file("\t    0);\n")
       write_node_file("irq_connect(" + str(node_irq['data'][2*i]) + ");\n\n")
       write_node_file("}\n")
     if 'flag' in node_irq.keys():
@@ -1010,13 +984,11 @@ def generate_structs_file(args, yaml_list):
         node_init_file = node_init_file_path + convert_string_to_label(node) + '_init.c'
         sys.stdout.write("file:" + node_init_file + "\n")
 
-        #code from stackoverflow
         if not os.path.exists(os.path.dirname(node_init_file)):
           try:
             os.makedirs(os.path.dirname(node_init_file))
-          except OSError as exc:  # Guard against race condition
-            if exc.errno != errno.EEXIST:
-              raise
+          except:
+            raise Exception("Could find path: " + node_init_file)
 
         file = open(node_init_file, 'w')
 
@@ -1028,8 +1000,6 @@ def generate_structs_file(args, yaml_list):
         write_node_file(" *               DO NOT MODIFY\n");
         write_node_file(" */\n")
         write_node_file("\n")
-        write_node_file("#ifndef _" + convert_string_to_label(node).upper() + "_H \n");
-        write_node_file("#define _" + convert_string_to_label(node).upper() + "_H \n");
         write_node_file("\n")
 
         if len(struct_dict[node]) > 1:
@@ -1041,7 +1011,6 @@ def generate_structs_file(args, yaml_list):
         else:
             print_driver_init_code(struct_dict[node], node, yaml_list)
 
-        write_node_file("\n#endif /* _" + convert_string_to_label(node).upper() + "_H */ \n")
         node_init_file = ""
         file.close()
 
