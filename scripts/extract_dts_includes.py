@@ -12,6 +12,8 @@ import pprint
 
 from devicetree import parse_file
 
+from copy import deepcopy
+
 # globals
 compatibles = {}
 phandles = {}
@@ -20,6 +22,9 @@ chosen = {}
 reduced = {}
 defs = {}
 structs = {}
+struct_dict = {}
+node_init_file = ""
+sub_struct_count = 0
 
 
 def convert_string_to_label(s):
@@ -162,18 +167,8 @@ def insert_defs(node_address, new_defs, new_aliases):
 
 def insert_structs(node_address, deflabel, new_structs):
 
-    if node_address in structs:
-        if deflabel in structs[node_address] and isinstance(structs[node_address][deflabel], dict):
-            structs[node_address][deflabel].update(new_structs)
-        else:
-            structs[node_address][deflabel] = new_structs
-    else:
-        structs[node_address] = {}
-        structs[node_address][deflabel] = new_structs
-
-    return
-
-def insert_structs(node_address, deflabel, new_structs):
+    if isinstance(new_structs, list):
+        new_structs = new_structs[0]
 
     if node_address in structs:
         if deflabel in structs[node_address] and isinstance(structs[node_address][deflabel], dict):
@@ -486,6 +481,21 @@ def extract_pinctrl(node_address, yaml, pinconf, names, index, def_label):
                     cell_struct['data'].append(prop_def[key_label])
                     cell_struct['data'].append(prop_def[func_label])
 
+                if len(cell_yaml['#cells']) == 2:
+                    pin_list=[]
+                    pin_list=reduced[subnode]['props'].get(cell_yaml['#cells'][0])
+                    for i in pin_list:
+                        cell_struct['data'].append(i)
+                        cell_struct['data'].append(reduced[subnode]['props'][cell_yaml['#cells'][1]])
+
+                elif len(cell_yaml['#cells']) == 1:
+                    for i, cells in enumerate(reduced[subnode]['props']):
+                        cell_struct['data'].append(reduced[subnode]['props'][cells][0])
+                        cell_struct['data'].append(reduced[subnode]['props'][cells][1])
+
+        #if 'name' not in prop_struct:
+        #    cell_struct['name'].append(cell_yaml['#struct'][0].get('name'))
+
         prop_struct.append(cell_struct)
     insert_defs(node_address, prop_def, {})
     insert_structs(node_address, 'pinctrl', prop_struct)
@@ -763,9 +773,242 @@ def lookup_defs(defs, node, key):
     return defs[node].get(key, None)
 
 
+def get_member_value(value, node_instances, instance_number):
+
+  prop_rank = 0
+  value_data = 0
+
+  value_split = value.split('[')
+  prop_name = value_split[0]
+  if len(value_split) > 1:
+    prop_rank = value_split[1].strip(']')
+
+  node_properties_dict = deepcopy(node_instances[instance_number])
+
+  #prop_name is output of convert_string_to_label
+  #convert keys of node_instances[instance_number] dict for latter comparison
+  for k in node_properties_dict.keys():
+    node_properties_dict[convert_string_to_label(k)] = node_properties_dict.pop(k)
+
+  if prop_name in node_properties_dict.keys():
+    value_data = node_properties_dict[prop_name]['data'][int(prop_rank)]
+
+  return value_data
+
+def insert_tab():
+
+  global sub_struct_count
+  for i in range(0, sub_struct_count):
+    write_node_file("\t")
+
+def open_brace():
+
+  global sub_struct_count
+
+  sub_struct_count += 1
+  write_node_file("{\n")
+
+def close_brace():
+
+  global sub_struct_count
+
+  sub_struct_count -= 1
+  insert_tab()
+
+  if sub_struct_count > 0:
+    write_node_file("},\n")
+  else:
+    #ending brace
+    write_node_file("}")
+
+def flatten_struct(iter, node_irq, node_instances, instance_number):
+
+  iter_dict = {}
+
+  if isinstance(iter, list):
+    for i in range(0, len(iter)):
+      iter_dict.update(iter[i])
+  else:
+    iter_dict = iter
+
+  if 'value' in iter_dict.keys():
+    cast = ""
+    if 'cast' in iter_dict.keys():
+       cast = iter_dict['cast']
+    if 'interrupts' == iter_dict['value']:
+      write_node_file(node_irq['func'] + ",\n")
+      if node_irq['flag'] != {}:
+        write_node_file("#endif /* " + node_irq['flag'] + " */\n")
+    else:
+      write_node_file(str(cast) + str(get_member_value(iter_dict['value'], node_instances, instance_number)) + ",\n")
+    return
+
+  #not a value, prepare a new sub struct
+  open_brace()
+
+  for k, v in iter_dict.items():
+    if 'irq_config_func' == k:
+      if node_irq['flag'] != {}:
+        write_node_file("#ifdef " + node_irq['flag'] + "\n")
+      insert_tab()
+      write_node_file(".irq_config_func = ")
+    else:
+      insert_tab()
+      write_node_file("." + str(k) + " = ")
+
+    flatten_struct(v, node_irq, node_instances, instance_number)
+
+  close_brace()
+
+def print_driver_init_code(node_instances, node, yaml_list, instance_number=0):
+
+  irq_func= ""
+
+  #for now, don't treat if no label, or no yaml
+  if ('label' in node_instances[instance_number]) and (node in yaml_list):
+    pass
+  else :
+    return
+
+  node_yaml_props = yaml_list[node]['properties']
+
+  #get #driver_init struct as dict
+  driver_init_dict ={}
+  for i in range(0, len(yaml_list[node]['#driver_init'])):
+    driver_init_dict.update(yaml_list[node]['#driver_init'][i])
+
+  #local variables
+  node_compat = convert_string_to_label(node)
+  instance_label = str(node_instances[instance_number]['label']['data'][0]).strip('"')
+
+  #check in dts if this node has irqs
+  node_irq = {}
+  if 'interrupts' in node_instances[instance_number]:
+    node_irq['data'] = node_instances[instance_number]['interrupts']['data']
+    node_irq['func'] = node_compat + "_irq_config_" + instance_label
+
+    if 'irq_config_flag' in driver_init_dict.keys():
+      node_irq['flag'] = driver_init_dict['irq_config_flag']
+      write_node_file("\n#ifdef " + node_irq['flag'] + "\n")
+
+    write_node_file("static void " + node_irq['func'] + " (struct device * dev);\n")
+
+    if node_irq['flag'] != {}:
+      write_node_file("#endif" + "/* " + node_irq['flag'] + " */\n\n")
+
+  # print _init and _api headers
+  write_node_file("static int " + node_compat + "_init(struct device *dev);\n\n")
+  write_node_file("static const struct " + str(driver_init_dict['api']) + " " + node_compat + "_api;\n\n")
+
+  # print _data_ / _config_ structs if present
+  if len(driver_init_dict.items()) > 0:
+    for k, v in driver_init_dict.items():
+      if k != 'irq_config_flag' and k != 'api':
+        write_node_file("\nstatic struct " + node_compat + "_" +  str(k) + " " + node_compat + "_" +  str(k) + "_" + instance_label + " = ")
+        flatten_struct(v, node_irq, node_instances, instance_number)
+        write_node_file(";\n\n")
+
+  # print DEVICE_AND_API_INIT struct
+  write_node_file("DEVICE_AND_API_INIT(" + node_compat + "_dev_" + instance_label + ",\n")
+  write_node_file('\t\t    "' + instance_label + '",\n')
+  write_node_file('\t\t    &' + node_compat + '_init,\n')
+  write_node_file('\t\t    &' + node_compat + '_data_' + instance_label + ',\n')
+  write_node_file('\t\t    &' + node_compat + '_config_' + instance_label + ',\n')
+  write_node_file('\t\t    PRE_KERNEL_1,\n')
+  write_node_file('\t\t    CONFIG_KERNEL_INIT_PRIORITY_DEVICE,\n')
+  write_node_file('\t\t    &' + node_compat + '_api);\n')
+
+
+  # print _irq_func_ if needed
+  if node_irq !={}:
+    if 'flag' in node_irq.keys():
+      write_node_file("\n#ifdef " + node_irq['flag'] + "\n")
+
+    write_node_file("static void " + node_irq['func'] + " (struct device * dev)\n")
+    write_node_file("{\n")
+    write_node_file("\n")
+    for i in range(0, int(len(node_irq['data'])/2)):
+      write_node_file("IRQ_CONNECT(" + str(node_irq['data'][2*i]) + " ," + str(node_irq['data'][2*i + 1]) + ",\n")
+      if 'interrupts-name' in node_instances[instance_number].keys():
+        write_node_file("\t    " + node_compat + "_" + str(node_instances[instance_number]['interrupts-name']['data'][i]).strip('"') + ",\n")
+      else:
+        write_node_file("\t    " + node_compat + "_isr" + ",\n")
+      write_node_file("\t    DEVICE_GET(" + node_compat + '_dev_' + instance_label + "),\n")
+      write_node_file("\t    0);\n")
+      write_node_file("irq_connect(" + str(node_irq['data'][2*i]) + ");\n\n")
+      write_node_file("}\n")
+    if 'flag' in node_irq.keys():
+      write_node_file("#endif" + "/* " + node_irq['flag'] + " */\n\n")
+
+def write_node_file(str):
+
+  global file
+  # uncomment for debug
+  # sys.stdout.write(str)
+
+  if file != "":
+    file.write(str)
+  else:
+    raise Exception("Output file does not exist.")
+
+
+def generate_structs_file(args, yaml_list):
+
+    global file
+    compatible = reduced['/']['props']['compatible'][0]
+
+    #print driver code init
+    for node in struct_dict:
+        dts_path = str(args.dts).split('/')[:-3]
+        outdir_path = '/'.join(dts_path)
+        node_init_file_path = str(outdir_path) + '/include/generated/'
+
+        node_init_file = node_init_file_path + convert_string_to_label(node) + '_init.h'
+
+        print("\n" + node_init_file_path + "\n")
+
+        if not os.path.exists(os.path.dirname(node_init_file)):
+          try:
+            os.makedirs(os.path.dirname(node_init_file))
+          except:
+            raise Exception("Could not find path: " + str(node_init_file_path))
+
+        try:
+          file = open(node_init_file, 'w')
+        except:
+            raise Exception("Could not open file: " + node_init_file)
+
+        write_node_file("/**************************************************\n")
+        write_node_file(" * Generated include file for " + node)
+        write_node_file("\n")
+        write_node_file(" *               DO NOT MODIFY\n");
+        write_node_file(" */\n")
+        write_node_file("\n")
+        write_node_file("#ifndef " + str(convert_string_to_label(node) + '_init').upper() + "_H" + "\n");
+        write_node_file("#define _" + str(convert_string_to_label(node) + '_init').upper() + "_H" + "\n");
+        write_node_file("\n")
+
+        if len(struct_dict[node]) > 1:
+            i = 0
+            for instance in (struct_dict[node]):
+
+                print_driver_init_code(struct_dict[node], node, yaml_list, i)
+                i = i + 1
+        else:
+            print_driver_init_code(struct_dict[node], node, yaml_list)
+
+        write_node_file("#endif /* _" + str(convert_string_to_label(node) + '_init').upper() + "_H */" + "\n");
+        node_init_file = ""
+        file.close()
+
+    # TODO: generate pinctrl_struct
+
+
+
+
 def generate_structs(args):
 
-    struct_dict = {}
+
     # Generate structure information here
     #
     # structs structure is:
@@ -926,16 +1169,19 @@ def main():
 
     insert_defs(chosen['zephyr,flash'], load_defs, {})
 
-    pprint.pprint(defs)
-    pprint.pprint(structs)
-    # generate include file
-    #if args.keyvalue:
-    #    generate_keyvalue_file(args)
-    #elif args.structs:
-    #    generate_structs(args)
-    #    generate_structs_file(args, yaml_list)
-    #else:
-    #    generate_include_file(args)
+    #pprint.pprint(defs)
+    #pprint.pprint(structs)
+    #generate include file
+    if args.keyvalue:
+       generate_keyvalue_file(args)
+       generate_structs_file(args, yaml_list)
+    elif args.structs:
+       generate_structs(args)
+       generate_structs_file(args, yaml_list)
+    else:
+       generate_include_file(args)
+       generate_structs(args)
+       generate_structs_file(args, yaml_list)
 
 
 if __name__ == '__main__':
