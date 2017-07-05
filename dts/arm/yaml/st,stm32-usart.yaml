@@ -3,6 +3,7 @@ title: STM32 USART
 id: st,stm32-usart
 version: 0.1
 
+
 description: >
     This binding gives a base representation of the STM32 USART
 
@@ -28,11 +29,24 @@ properties:
       description: required interrupts
       generation: define
 
+  - interrupts-name:
+      type: array
+      category: required
+      description: names of required interrupts
+      generation: define
+
+  - pinctrl-\d+:
+      type: array
+      category: optional
+      description: pinmux information for RX, TX, CTS, RTS
+      generation: define
+
   - clocks:
       type: array
       category: required
       description: Clock gate control information
       generation: define
+
 
 "#driver_init":
   - data:
