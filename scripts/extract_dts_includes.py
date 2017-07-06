@@ -443,7 +443,7 @@ def extract_pinctrl(node_address, yaml, pinconf, names, index, def_label):
 
         cell_struct = {}
         cell_struct['data'] = []
-        cell_struct['struct name'] = cell_yaml['#struct'][0].get('name')
+        #cell_struct['struct name'] = cell_yaml['#struct'][0].get('name')
         cell_struct['members'] = pin_entry.get('label')
         cell_struct['defs'] = {'labels':[], 'aliases':[]}
 
@@ -465,15 +465,15 @@ def extract_pinctrl(node_address, yaml, pinconf, names, index, def_label):
 
                         prop_def[key_label] = reduced[subnode]['props'][cells]
                         prop_def[func_label] = reduced[subnode]['props'][cells]
-                        cell_struct['defs']['labels'].append(key_label)
-                        cell_struct['defs']['labels'].append(func_label)
+                        #cell_struct['defs']['labels'].append(key_label)
+                        #cell_struct['defs']['labels'].append(func_label)
 
                     elif len(cell_yaml['#cells']) == 1:
                         key_label = list(pin_label) + [cell_yaml['#cells'][0]] + [str(i)]
                         key_label = convert_string_to_label('_'.join(key_label)).upper()
 
                         prop_def[key_label] = reduced[subnode]['props'][cells]
-                        cell_struct['defs']['labels'].append(key_label)
+                        #cell_struct['defs']['labels'].append(key_label)
 
                     prop_def[key_label] = reduced[subnode]['props'][cells]
                     prop_def[func_label] = \
@@ -481,24 +481,24 @@ def extract_pinctrl(node_address, yaml, pinconf, names, index, def_label):
                     cell_struct['data'].append(prop_def[key_label])
                     cell_struct['data'].append(prop_def[func_label])
 
-                if len(cell_yaml['#cells']) == 2:
-                    pin_list=[]
-                    pin_list=reduced[subnode]['props'].get(cell_yaml['#cells'][0])
-                    for i in pin_list:
-                        cell_struct['data'].append(i)
-                        cell_struct['data'].append(reduced[subnode]['props'][cell_yaml['#cells'][1]])
-
-                elif len(cell_yaml['#cells']) == 1:
-                    for i, cells in enumerate(reduced[subnode]['props']):
-                        cell_struct['data'].append(reduced[subnode]['props'][cells][0])
-                        cell_struct['data'].append(reduced[subnode]['props'][cells][1])
+                # if len(cell_yaml['#cells']) == 2:
+                #     pin_list=[]
+                #     pin_list=reduced[subnode]['props'].get(cell_yaml['#cells'][0])
+                #     for i in pin_list:
+                #         cell_struct['data'].append(i)
+                #         cell_struct['data'].append(reduced[subnode]['props'][cell_yaml['#cells'][1]])
+                #
+                # elif len(cell_yaml['#cells']) == 1:
+                #     for i, cells in enumerate(reduced[subnode]['props']):
+                #         cell_struct['data'].append(reduced[subnode]['props'][cells][0])
+                #         cell_struct['data'].append(reduced[subnode]['props'][cells][1])
 
         #if 'name' not in prop_struct:
         #    cell_struct['name'].append(cell_yaml['#struct'][0].get('name'))
 
         prop_struct.append(cell_struct)
     insert_defs(node_address, prop_def, {})
-    insert_structs(node_address, 'pinctrl', prop_struct)
+    # insert_structs(node_address, 'pinctrl', prop_struct)
 
 
 def extract_single(node_address, yaml, prop, key, prefix, def_label):
@@ -960,6 +960,16 @@ def generate_structs_file(args, yaml_list):
     if not args.structs:
       print('Usage: %s -d filename.dts -y path_to_yaml -s $(objtree)' % sys.argv[0])
       return 1
+
+    generate_file = False
+
+    for k in yaml_list.keys():
+      if '#driver_init' in yaml_list[k].keys():
+        generate_file = True
+
+    if generate_file == False:
+        #no  driver code to generate
+        return 1
 
     #print driver code init
     for node in struct_dict:
