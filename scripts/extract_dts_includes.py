@@ -957,15 +957,18 @@ def generate_structs_file(args, yaml_list):
     global file
     compatible = reduced['/']['props']['compatible'][0]
 
+    if not args.structs:
+      print('Usage: %s -d filename.dts -y path_to_yaml -s $(objtree)' % sys.argv[0])
+      return 1
+
     #print driver code init
     for node in struct_dict:
-        dts_path = str(args.dts).split('/')[:-3]
-        outdir_path = '/'.join(dts_path)
+        outdir_path = str(args.structs)
+        #outdir_path='/local/mcu/zephyr/zephyr-project/samples/hello_world/outdir/disco_l475_iot1'
         node_init_file_path = str(outdir_path) + '/include/generated/'
-
         node_init_file = node_init_file_path + convert_string_to_label(node) + '_init.h'
 
-        print("\n" + node_init_file_path + "\n")
+        #print("\n" + node_init_file_path + "\n")
 
         if not os.path.exists(os.path.dirname(node_init_file)):
           try:
@@ -1038,7 +1041,7 @@ def generate_structs(args):
         struct_dict[compat].append(v)
 
     # now we can process it most efficiently
-    pprint.pprint(struct_dict)
+    #pprint.pprint(struct_dict)
     return
 
 
@@ -1049,7 +1052,7 @@ def parse_arguments():
 
     parser.add_argument("-d", "--dts", help="DTS file")
     parser.add_argument("-y", "--yaml", help="YAML file")
-    parser.add_argument("-s", "--structs", action="store_true")
+    parser.add_argument("-s", "--structs", help="objdir path")
     parser.add_argument("-f", "--fixup", help="Fixup file")
     parser.add_argument("-k", "--keyvalue", action="store_true",
                         help="Generate include file for the build system")
@@ -1180,8 +1183,6 @@ def main():
        generate_structs_file(args, yaml_list)
     else:
        generate_include_file(args)
-       generate_structs(args)
-       generate_structs_file(args, yaml_list)
 
 
 if __name__ == '__main__':

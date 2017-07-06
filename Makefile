@@ -976,6 +976,10 @@ define filechk_generated_dts_board.h
 				-d dts/$(ARCH)/$(BOARD_NAME).dts_compiled \
 				-y $(ZEPHYR_BASE)/dts/$(ARCH)/yaml; \
 		fi; \
+		$(ZEPHYR_BASE)/scripts/extract_dts_includes.py \
+				-d dts/$(ARCH)/$(BOARD_NAME).dts_compiled \
+				-y $(ZEPHYR_BASE)/dts/$(ARCH)/yaml \
+				-s $(objtree); \
 		)
 endef
 define filechk_generated_dts_board.conf
