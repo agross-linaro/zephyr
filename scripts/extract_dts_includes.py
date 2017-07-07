@@ -798,7 +798,7 @@ def get_member_value(value, node_instances, instance_number):
     node_properties_dict[convert_string_to_label(k)] = node_properties_dict.pop(k)
 
   if prop_name in node_properties_dict.keys():
-    value_data = node_properties_dict[prop_name]['data'][int(prop_rank)]
+    value_data = node_properties_dict[prop_name]['data'][0][int(prop_rank)]
 
   return value_data
 
@@ -886,13 +886,15 @@ def print_driver_init_code(node_instances, node, yaml_list, instance_number=0):
 
   #local variables
   node_compat = convert_string_to_label(node)
-  instance_label = str(node_instances[instance_number]['label']['data'][0]).strip('"')
+  instance_label = str(node_instances[instance_number]['label']['data'][0][0]).strip('"').strip("'")
 
   #check in dts if this node has irqs
   node_irq = {}
   if 'interrupts' in node_instances[instance_number]:
     node_irq['data'] = node_instances[instance_number]['interrupts']['data']
     node_irq['func'] = node_compat + "_irq_config_" + instance_label
+    if 'interrupts-name' in node_instances[instance_number].keys():
+      node_irq['names'] = node_instances[instance_number]['interrupts-name']['data'][0]
 
     if 'irq_config_flag' in driver_init_dict.keys():
       node_irq['flag'] = driver_init_dict['irq_config_flag']
@@ -934,15 +936,15 @@ def print_driver_init_code(node_instances, node, yaml_list, instance_number=0):
     write_node_file("static void " + node_irq['func'] + " (struct device * dev)\n")
     write_node_file("{\n")
     write_node_file("\n")
-    for i in range(0, int(len(node_irq['data'])/2)):
-      write_node_file("IRQ_CONNECT(" + str(node_irq['data'][2*i]) + " ," + str(node_irq['data'][2*i + 1]) + ",\n")
+    for i in range(0, len(node_irq['data'])):
+      write_node_file("IRQ_CONNECT(" + str(node_irq['data'][i][0]) + " ," + str(node_irq['data'][i][1]) + ",\n")
       if 'interrupts-name' in node_instances[instance_number].keys():
-        write_node_file("\t    " + node_compat + "_" + str(node_instances[instance_number]['interrupts-name']['data'][i]).strip('"') + ",\n")
+        write_node_file("\t    " + node_compat + "_" + str( node_irq['names'][i]).strip('"') + ",\n")
       else:
         write_node_file("\t    " + node_compat + "_isr" + ",\n")
       write_node_file("\t    DEVICE_GET(" + node_compat + '_dev_' + instance_label + "),\n")
       write_node_file("\t    0);\n")
-      write_node_file("irq_connect(" + str(node_irq['data'][2*i]) + ");\n\n")
+      write_node_file("irq_connect(" + str(node_irq['data'][i][0]) + ");\n\n")
       write_node_file("}\n")
     if 'flag' in node_irq.keys():
       write_node_file("#endif" + "/* " + node_irq['flag'] + " */\n\n")
@@ -953,10 +955,10 @@ def write_node_file(str):
   # uncomment for debug
   # sys.stdout.write(str)
 
-#  if file != "":
-#    file.write(str)
-#  else:
-#    raise Exception("Output file does not exist.")
+  if file != "":
+    file.write(str)
+  else:
+    raise Exception("Output file does not exist.")
 
 
 def generate_structs_file(args, yaml_list):
@@ -1018,7 +1020,7 @@ def generate_structs_file(args, yaml_list):
 
         write_node_file("#endif /* _" + str(convert_string_to_label(node) + '_init').upper() + "_H */" + "\n");
         node_init_file = ""
-        #file.close()
+        file.close()
 
     # TODO: generate pinctrl_struct
 
