@@ -376,7 +376,7 @@ def extract_cells(node_address, yaml, y_key, names, index, prefix, def_label):
     except:
         name = []
 
-    l_cell = [str(cell_yaml.get('cell_string', ''))]
+    l_cell = [str(cell_yaml.get('cell_string', '')).upper()]
     l_base = def_label.split('/')
     l_base += prefix
     l_idx = [str(index)]
@@ -409,10 +409,10 @@ def extract_cells(node_address, yaml, y_key, names, index, prefix, def_label):
                     prop_alias['_'.join(label[:-1])] = '_'.join(label)
                     cell_defs['aliases'].append({'_'.join(label[:-1]): '_'.join(label)})
 
-        prop_struct['data'].append(cell_data)
-        prop_struct['members'].append(cell_members)
-        prop_struct['defs'].append(cell_defs)
-        insert_defs(node_address, prop_def, prop_alias)
+    prop_struct['data'].append(cell_data)
+    prop_struct['members'].append(cell_members)
+    prop_struct['defs'].append(cell_defs)
+    insert_defs(node_address, prop_def, prop_alias)
     insert_structs(node_address, cell_yaml.get('cell_string'), prop_struct)
 
     # recurse if we have anything left
