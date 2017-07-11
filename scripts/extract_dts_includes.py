@@ -475,7 +475,7 @@ def extract_pinctrl(node_address, yaml, pinconf, names, index, def_label):
                         func_label = convert_string_to_label('_'.join(func_label)).upper()
 
                         prop_def[key_label] = reduced[subnode]['props'][cells]
-                        prop_def[func_label] = reduced[subnode]['props'][cells]
+                        prop_def[func_label] = reduced[subnode]['props'][cell_yaml['#cells'][1]]
                         cell_defs['labels'].append(key_label)
                         cell_defs['labels'].append(func_label)
 
@@ -495,9 +495,13 @@ def extract_pinctrl(node_address, yaml, pinconf, names, index, def_label):
                 if len(cell_yaml['#cells']) == 2:
                     pin_list=[]
                     pin_list=reduced[subnode]['props'].get(cell_yaml['#cells'][0])
+                    cell_members.append(name)
                     for i in pin_list:
-                        cell_data.append(i)
-                        cell_data.append(reduced[subnode]['props'][cell_yaml['#cells'][1]])
+                        pin_data = []
+                        pin_data.append(i)
+                        pin_data.append(reduced[subnode]['props'][cell_yaml['#cells'][1]])
+                        cell_data.append(pin_data)
+
 
                 elif len(cell_yaml['#cells']) == 1:
                     cell_members.append(name)
