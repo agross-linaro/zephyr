@@ -20,8 +20,6 @@
 
 	soc {
 
-		clocks-parent = <&rcc>;
-
 		rcc: rcc@40021000 {
 			compatible = "st,stm32-rcc";
 			clocks-controller;
