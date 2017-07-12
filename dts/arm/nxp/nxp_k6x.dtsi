@@ -171,14 +171,14 @@
 		pinmux_a: pinmux@40049000 {
 			compatible = "nxp,kinetis-pinmux";
 			reg = <0x40049000 0xd0>;
-
+			label = "porta";
 			clocks = <&sim 0x1038 9>;
 		};
 
 		pinmux_b: pinmux@4004a000 {
 			compatible = "nxp,kinetis-pinmux";
 			reg = <0x4004a000 0xd0>;
-
+			label = "portb";
 			clocks = <&sim 0x1038 10>;
 			uart0_default: uart0_default {
 				rx-tx {
@@ -205,18 +205,21 @@
 		pinmux_c: pinmux@4004b000 {
 			compatible = "nxp,kinetis-pinmux";
 			reg = <0x4004b000 0xd0>;
+			label = "portc";
 			clocks = <&sim 0x1038 11>;
 		};
 
 		pinmux_d: pinmux@4004c000 {
 			compatible = "nxp,kinetis-pinmux";
 			reg = <0x4004c000 0xd0>;
+			label = "portd";
 			clocks = <&sim 0x1038 12>;
 		};
 
 		pinmux_e: pinmux@4004d000 {
 			compatible = "nxp,kinetis-pinmux";
 			reg = <0x4004d000 0xd0>;
+			label = "porte";
 			clocks = <&sim 0x1038 13>;
 		};
 

@@ -174,7 +174,8 @@ def insert_structs(node_address, deflabel, new_structs):
       if node_address in structs:
         if deflabel in structs[node_address]:
           for k in s.keys():
-            structs[node_address][deflabel][k].append(s[k][0])
+            if len(s[k]) > 0:
+              structs[node_address][deflabel][k].append(s[k][0])
         else:
           structs[node_address][deflabel] = s
       else:
@@ -441,7 +442,7 @@ def extract_pinctrl(node_address, yaml, pinconf, names, index, def_label):
     def_prefix = def_label.split('_')
 
     prop_def = {}
-    prop_struct = {'data':[], 'defs':[], 'members':[]}
+    prop_struct = {'data':[], 'defs':[], 'members':[], 'instance':[]}
     for i in range(0, len(prop_list)):
         p = prop_list[i]
         name = name_list[i]
@@ -515,6 +516,9 @@ def extract_pinctrl(node_address, yaml, pinconf, names, index, def_label):
         prop_struct['data'].append(cell_data)
         prop_struct['members'].append(cell_members)
         prop_struct['defs'].append(cell_defs)
+
+    if 'label' in pin_parent['props'].keys():
+        prop_struct['instance'].append(pin_parent['props']['label'])
 
     insert_defs(node_address, prop_def, {})
     insert_structs(node_address, 'pinctrl', prop_struct)
@@ -881,23 +885,32 @@ def flatten_struct(iter, node_irq, node_instances, instance_number):
 
   close_brace()
 
-def print_pinctrl_init_code(node_instances, node, yaml_list):
+def print_pinctrl_init_code(node_instances, node, yaml_list, instance=""):
 
   node_yaml_props = yaml_list[node]['properties']
 
   #local variables
   node_compat = convert_string_to_label(node)
 
-  write_node_file( "\nstatic const struct" + ' pin_config ' + node_compat + "_pinconf [] = {\n")
+  label_string = ""
+
+  if instance != "":
+    label_string = "_" + instance
+
+  write_node_file("\nstatic const struct" + ' pin_config ' + node_compat + "_pinconf" + label_string + " [] = {\n")
 
   for node in structs.keys():
-        if 'pinctrl' in structs[node].keys():
-          for config in range(0, len(structs[node]['pinctrl']['data'])):
-            if 'default' in str(structs[node]['pinctrl']['members'][config]):
-              for pin in range(0, len(structs[node]['pinctrl']['data'][config])):
-                write_node_file("\t{")
-                write_node_file(str(structs[node]['pinctrl']['data'][config][pin])[1:-1])
-                write_node_file("},\n")
+    if 'pinctrl' in structs[node].keys():
+        if len(structs[node]['pinctrl']['instance']) > 0:
+          if str(structs[node]['pinctrl']['instance'][0]).strip("'") != instance:
+            continue
+
+        for config in range(0, len(structs[node]['pinctrl']['data'])):
+          if 'default' in str(structs[node]['pinctrl']['members'][config]):
+            for pin in range(0, len(structs[node]['pinctrl']['data'][config])):
+              write_node_file("\t{")
+              write_node_file(str(structs[node]['pinctrl']['data'][config][pin])[1:-1])
+              write_node_file("},\n")
 
   write_node_file( "};\n\n")
 
@@ -1050,7 +1063,40 @@ def generate_structs_file(args, yaml_list):
         write_node_file("\n")
 
         if 'pinctrl' in node or 'pinmux' in node:
-          print_pinctrl_init_code(struct_dict[node], node, yaml_list)
+          #check if multiple instances of pinmux/pinctrl IP
+          if len(struct_dict[node]) > 1:
+            i = 0
+            pinmux_table = []
+
+            for instance in (struct_dict[node]):
+
+              # build the array of used pinmuxes
+              for node_1 in structs.keys():
+                if 'pinctrl' in structs[node_1].keys():
+                  pinmux_label = str(structs[node_1]['pinctrl']['instance'][0]).strip("'")
+                  if pinmux_label == str(struct_dict[node][i]['label']['data'][0][0]).strip('"'):
+                    if pinmux_label not in pinmux_table:
+                      pinmux_table.append(pinmux_label)
+              i = i + 1
+
+            #write the array of used pinmuxes
+            write_node_file("\nstatic const struct " + str(convert_string_to_label(node)) + "_instances" + " [] = {")
+            for line in range(0,len(pinmux_table)):
+                write_node_file("\n\t{" + str(pinmux_table[line]) + ", ")
+                write_node_file(str(convert_string_to_label(node)) + "_" + str(pinmux_table[line]) + "},")
+            write_node_file("\n};\n")
+
+            #write pinmux array for this instance
+            for line in range(0,len(pinmux_table)):
+                print_pinctrl_init_code(struct_dict[node], node, yaml_list, pinmux_table[line])
+
+          else:
+            # check if there is a label associated
+            if 'label' in struct_dict[node][0]:
+              pinmux_label = str(struct_dict[node][0]['label']['data'][0][0]).strip('"')
+              print_pinctrl_init_code(struct_dict[node], node, yaml_list, pinmux_label)
+            else:
+              print_pinctrl_init_code(struct_dict[node], node, yaml_list)
         else:
           if len(struct_dict[node]) > 1:
               i = 0
