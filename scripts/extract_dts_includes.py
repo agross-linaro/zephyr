@@ -172,6 +172,10 @@ def insert_structs(node_address, deflabel, new_structs):
        list_structs = new_structs
     for s in list_structs:
       if node_address in structs:
+        if deflabel in structs[node_address]:
+          for k in s.keys():
+            structs[node_address][deflabel][k].append(s[k][0])
+        else:
           structs[node_address][deflabel] = s
       else:
           structs[node_address] = {}
@@ -426,16 +430,22 @@ def extract_cells(node_address, yaml, y_key, names, index, prefix, def_label):
 def extract_pinctrl(node_address, yaml, pinconf, names, index, def_label):
 
     prop_list = []
+    name_list = []
     if not isinstance(pinconf, list):
         prop_list.append(pinconf)
+        name_list.append(names)
     else:
         prop_list = list(pinconf)
+        name_list = list(names)
 
     def_prefix = def_label.split('_')
 
     prop_def = {}
     prop_struct = {'data':[], 'defs':[], 'members':[]}
-    for p in prop_list:
+    for i in range(0, len(prop_list)):
+        p = prop_list[i]
+        name = name_list[i]
+
         pin_node_address = phandles[p]
         parent_address = '/'.join(pin_node_address.split('/')[:-1])
         pin_subnode = '/'.join(pin_node_address.split('/')[-1:])
@@ -445,8 +455,7 @@ def extract_pinctrl(node_address, yaml, pinconf, names, index, def_label):
         post_fix = []
 
         cell_data = []
-        cell_struct['struct name'] = cell_yaml['#struct'][0].get('name')
-        cell_members = pin_entry.get('label')
+        cell_members = []
         cell_defs = {'labels':[], 'aliases':[]}
 
         if cell_prefix is not None:
@@ -471,7 +480,7 @@ def extract_pinctrl(node_address, yaml, pinconf, names, index, def_label):
                         cell_defs['labels'].append(func_label)
 
                     elif len(cell_yaml['#cells']) == 1:
-                        key_label = list(pin_label) + [cell_yaml['#cells'][0]] + [str(i)]
+                        key_label = list(pin_label) + [cell_yaml['#cells'][0]] + [cells]
                         key_label = convert_string_to_label('_'.join(key_label)).upper()
 
                         prop_def[key_label] = reduced[subnode]['props'][cells]
@@ -491,9 +500,10 @@ def extract_pinctrl(node_address, yaml, pinconf, names, index, def_label):
                         cell_data.append(reduced[subnode]['props'][cell_yaml['#cells'][1]])
 
                 elif len(cell_yaml['#cells']) == 1:
-                    for i, cells in enumerate(reduced[subnode]['props']):
-                        cell_data.append(reduced[subnode]['props'][cells][0])
-                        cell_data.append(reduced[subnode]['props'][cells][1])
+                    cell_members.append(name)
+                    for cells in reduced[subnode]['props'].keys():
+                        cell_data.append(reduced[subnode]['props'][cells])
+
 
         #if 'name' not in prop_struct:
         #    cell_struct['name'].append(cell_yaml['#struct'][0].get('name'))
@@ -503,7 +513,7 @@ def extract_pinctrl(node_address, yaml, pinconf, names, index, def_label):
         prop_struct['defs'].append(cell_defs)
 
     insert_defs(node_address, prop_def, {})
-    # insert_structs(node_address, 'pinctrl', prop_struct)
+    insert_structs(node_address, 'pinctrl', prop_struct)
 
 
 def extract_single(node_address, yaml, prop, key, prefix, def_label):
@@ -867,15 +877,31 @@ def flatten_struct(iter, node_irq, node_instances, instance_number):
 
   close_brace()
 
+def print_pinctrl_init_code(node_instances, node, yaml_list):
+
+  node_yaml_props = yaml_list[node]['properties']
+
+  #local variables
+  node_compat = convert_string_to_label(node)
+
+  write_node_file( "\nstatic const struct" + ' pin_config ' + node_compat + "_pinconf [] = {\n")
+
+  for node in structs.keys():
+        if 'pinctrl' in structs[node].keys():
+          for config in range(0, len(structs[node]['pinctrl']['data'])):
+            if 'default' in str(structs[node]['pinctrl']['members'][config]):
+              for pin in range(0, len(structs[node]['pinctrl']['data'][config])):
+                write_node_file("\t{")
+                write_node_file(str(structs[node]['pinctrl']['data'][config][pin])[1:-1])
+                write_node_file("},\n")
+
+  write_node_file( "};\n\n")
+
+  return
+
 def print_driver_init_code(node_instances, node, yaml_list, instance_number=0):
 
   irq_func= ""
-
-  #for now, don't treat if no label, or no yaml
-  if ('label' in node_instances[instance_number]) and (node in yaml_list):
-    pass
-  else :
-    return
 
   node_yaml_props = yaml_list[node]['properties']
 
@@ -956,7 +982,7 @@ def print_driver_init_code(node_instances, node, yaml_list, instance_number=0):
       write_node_file("\t    DEVICE_GET(" + node_compat + '_dev_' + instance_label + "),\n")
       write_node_file("\t    0);\n")
       write_node_file("irq_connect(" + str(node_irq['data'][i][0]) + ");\n\n")
-      write_node_file("}\n")
+    write_node_file("}\n")
     if 'flag' in node_irq.keys():
       write_node_file("#endif" + "/* " + node_irq['flag'] + " */\n\n")
 
@@ -981,18 +1007,16 @@ def generate_structs_file(args, yaml_list):
       print('Usage: %s -d filename.dts -y path_to_yaml -s $(objtree)' % sys.argv[0])
       return 1
 
-    generate_file = False
-
-    for k in yaml_list.keys():
-      if '#driver_init' in yaml_list[k].keys():
-        generate_file = True
-
-    if generate_file == False:
-        #no  driver code to generate
-        return 1
-
     #print driver code init
     for node in struct_dict:
+
+        if node not in yaml_list:
+          continue
+
+        if '#driver_init' not in yaml_list[node].keys():
+          if 'pinctrl' not in node and 'pinmux' not in node:
+            continue
+
         outdir_path = str(args.structs)
         #outdir_path='/local/mcu/zephyr/zephyr-project/samples/hello_world/outdir/disco_l475_iot1'
         node_init_file_path = str(outdir_path) + '/include/generated/'
@@ -1020,23 +1044,21 @@ def generate_structs_file(args, yaml_list):
         write_node_file("#ifndef " + str(convert_string_to_label(node) + '_init').upper() + "_H" + "\n");
         write_node_file("#define _" + str(convert_string_to_label(node) + '_init').upper() + "_H" + "\n");
         write_node_file("\n")
-        if len(struct_dict[node]) > 1:
-            i = 0
-            for instance in (struct_dict[node]):
 
-                print_driver_init_code(struct_dict[node], node, yaml_list, i)
-                i = i + 1
+        if 'pinctrl' in node or 'pinmux' in node:
+          print_pinctrl_init_code(struct_dict[node], node, yaml_list)
         else:
-            print_driver_init_code(struct_dict[node], node, yaml_list)
+          if len(struct_dict[node]) > 1:
+              i = 0
+              for instance in (struct_dict[node]):
+                  print_driver_init_code(struct_dict[node], node, yaml_list, i)
+                  i = i + 1
+          else:
+              print_driver_init_code(struct_dict[node], node, yaml_list)
 
         write_node_file("#endif /* _" + str(convert_string_to_label(node) + '_init').upper() + "_H */" + "\n");
         node_init_file = ""
         file.close()
-
-    # TODO: generate pinctrl_struct
-
-
-
 
 def generate_structs(args):
 
@@ -1070,7 +1092,7 @@ def generate_structs(args):
         struct_dict[compat].append(v)
 
     # now we can process it most efficiently
-    #pprint.pprint(struct_dict)
+    # pprint.pprint(struct_dict)
     return
 
 

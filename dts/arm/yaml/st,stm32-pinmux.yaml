@@ -19,16 +19,9 @@ properties:
       generation: define
       category: required
 
-  - pinmux:
-      type: array
-      category: required
-      description: pin muxing
-      generation: structure
-
 cell_string: PINMUX
 
 "#cells":
-  - pin func
-"#struct":
-  - name: gen_pinconf
+  - pin,func
+
 ...
