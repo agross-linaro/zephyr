@@ -921,11 +921,20 @@ def print_driver_init_code(node_instances, node, yaml_list, instance_number=0):
   write_node_file("DEVICE_AND_API_INIT(" + node_compat + "_dev_" + instance_label + ",\n")
   write_node_file('\t\t    "' + instance_label + '",\n')
   write_node_file('\t\t    &' + node_compat + '_init,\n')
-  write_node_file('\t\t    &' + node_compat + '_data_' + instance_label + ',\n')
-  write_node_file('\t\t    &' + node_compat + '_config_' + instance_label + ',\n')
+  if 'data' in driver_init_dict.keys():
+    write_node_file('\t\t    &' + node_compat + '_data_' + instance_label + ',\n')
+  else:
+    write_node_file('\t\t    NULL,\n')
+  if 'config' in driver_init_dict.keys():
+    write_node_file('\t\t    &' + node_compat + '_config_' + instance_label + ',\n')
+  else:
+    write_node_file('\t\t    NULL,\n')
   write_node_file('\t\t    PRE_KERNEL_1,\n')
   write_node_file('\t\t    CONFIG_KERNEL_INIT_PRIORITY_DEVICE,\n')
-  write_node_file('\t\t    &' + node_compat + '_api);\n')
+  if 'api' in driver_init_dict.keys():
+    write_node_file('\t\t    &' + node_compat + '_api);\n')
+  else:
+    write_node_file('\t\t    NULL);\n')
 
 
   # print _irq_func_ if needed
