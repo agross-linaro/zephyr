@@ -912,7 +912,7 @@ def print_driver_init_code(node_instances, node, yaml_list, instance_number=0):
   # print _data_ / _config_ structs if present
   if len(driver_init_dict.items()) > 0:
     for k, v in driver_init_dict.items():
-      if k != 'irq_config_flag' and k != 'api':
+      if k != 'irq_config_flag' and k != 'api' and k != 'init_prio':
         write_node_file("\nstatic struct " + node_compat + "_" +  str(k) + " " + node_compat + "_" +  str(k) + "_" + instance_label + " = ")
         flatten_struct(v, node_irq, node_instances, instance_number)
         write_node_file(";\n\n")
@@ -929,7 +929,7 @@ def print_driver_init_code(node_instances, node, yaml_list, instance_number=0):
     write_node_file('\t\t    &' + node_compat + '_config_' + instance_label + ',\n')
   else:
     write_node_file('\t\t    NULL,\n')
-  write_node_file('\t\t    PRE_KERNEL_1,\n')
+  write_node_file('\t\t    ' + str(driver_init_dict['init_prio']) + ',\n')
   write_node_file('\t\t    CONFIG_KERNEL_INIT_PRIORITY_DEVICE,\n')
   if 'api' in driver_init_dict.keys():
     write_node_file('\t\t    &' + node_compat + '_api);\n')

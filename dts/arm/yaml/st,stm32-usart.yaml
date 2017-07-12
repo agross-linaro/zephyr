@@ -68,5 +68,5 @@ properties:
                           - value: clocks[1]
   - irq_config_flag: CONFIG_UART_INTERRUPT_DRIVEN
   - api: uart_driver_api
-
+  - init_prio: PRE_KERNEL_1
 ...
