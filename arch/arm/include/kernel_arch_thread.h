@@ -86,6 +86,8 @@ struct _thread_arch {
 	/* r0 in stack frame cannot be written to reliably */
 	u32_t swap_return_value;
 
+	u32_t mode;
+
 #ifdef CONFIG_FLOAT
 	/*
 	 * No cooperative floating point register set structure exists for

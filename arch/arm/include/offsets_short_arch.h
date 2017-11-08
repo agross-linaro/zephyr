@@ -20,11 +20,17 @@
 #define _thread_offset_to_basepri \
 	(___thread_t_arch_OFFSET + ___thread_arch_t_basepri_OFFSET)
 
+#define _thread_offset_to_mode \
+	(___thread_t_arch_OFFSET + ___thread_arch_t_mode_OFFSET)
+
 #define _thread_offset_to_swap_return_value \
 	(___thread_t_arch_OFFSET + ___thread_arch_t_swap_return_value_OFFSET)
 
 #define _thread_offset_to_preempt_float \
 	(___thread_t_arch_OFFSET + ___thread_arch_t_preempt_float_OFFSET)
+
+#define _thread_offset_to_stack_info_size \
+	(_thread_offset_to_stack_info + ___thread_stack_info_t_size_OFFSET)
 
 /* end - threads */
 

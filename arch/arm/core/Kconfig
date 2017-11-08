@@ -24,6 +24,7 @@ config CPU_CORTEX_M
 	select HAS_DTS
 	select ARCH_HAS_STACK_PROTECTION if ARM_CORE_MPU
 	select ARCH_HAS_USERSPACE if ARM_CORE_MPU
+	select APPLICATION_MEMORY if ARCH_HAS_USERSPACE
 	help
 	This option signifies the use of a CPU of the Cortex-M family.
 

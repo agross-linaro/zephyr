@@ -61,6 +61,12 @@
 #define _thread_offset_to_esf \
 	(___thread_t_arch_OFFSET + ___thread_arch_t_esf_OFFSET)
 
+#define _thread_offset_to_stack_obj \
+	(___thread_t_stack_obj_OFFSET)
+
+#define _thread_offset_to_stack_info \
+	(___thread_t_stack_info_OFFSET)
+
 
 /* end - threads */
 

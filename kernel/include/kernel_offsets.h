@@ -59,6 +59,10 @@ GEN_OFFSET_SYM(_thread_stack_info_t, size);
 GEN_OFFSET_SYM(_thread_t, stack_info);
 #endif
 
+#ifdef CONFIG_USERSPACE
+GEN_OFFSET_SYM(_thread_t, stack_obj);
+#endif
+
 #if defined(CONFIG_THREAD_MONITOR)
 GEN_OFFSET_SYM(_thread_t, next_thread);
 #endif
