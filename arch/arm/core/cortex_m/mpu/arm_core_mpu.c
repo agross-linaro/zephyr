@@ -25,13 +25,28 @@ void configure_mpu_stack_guard(struct k_thread *thread)
 {
 	arm_core_mpu_disable();
 	arm_core_mpu_configure(THREAD_STACK_GUARD_REGION,
-			thread->stack_info.start - MPU_GUARD_ALIGN_AND_SIZE,
-			thread->stack_info.size);
+		thread->stack_info.start - MPU_GUARD_ALIGN_AND_SIZE,
+		thread->stack_info.size);
 	arm_core_mpu_enable();
 }
 #endif
 
 #if defined(CONFIG_USERSPACE)
+void configure_mpu_user_stack_context(struct k_thread *thread)
+{
+	SYS_LOG_DBG("configure user thread %p's stack context", thread);
+	arm_core_mpu_disable();
+	arm_core_mpu_configure_user_stack_context(thread);
+	arm_core_mpu_enable();
+}
+
+void configure_mpu_privileged_stack_context(struct k_thread *thread)
+{
+	SYS_LOG_DBG("configure privileged thread %p's stack context", thread);
+	arm_core_mpu_disable();
+	arm_core_mpu_configure_privileged_stack_context(thread);
+	arm_core_mpu_enable();
+}
 /*
  * @brief Configure MPU memory domain
  *
