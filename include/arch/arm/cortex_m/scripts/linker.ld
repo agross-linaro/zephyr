@@ -197,6 +197,8 @@ SECTIONS
 #ifdef CONFIG_APPLICATION_MEMORY
 	SECTION_DATA_PROLOGUE(_APP_DATA_SECTION_NAME, (OPTIONAL),)
 	{
+		_app_data_align = 32;
+		. = ALIGN(_app_data_align);
 		__app_ram_start = .;
 		__app_data_ram_start = .;
 		_image_ram_start = .;
@@ -224,7 +226,15 @@ SECTIONS
 		APP_INPUT_SECTION(".noinit.*")
 	} GROUP_DATA_LINK_IN(RAMABLE_REGION, RAMABLE_REGION)
 
+	__app_last_address_used = .;
+
+	/* Pad out application ram area to make MPU friendly */
+	SECTION_PROLOGUE(app_pad, (NOLOAD OPTIONAL),)
+	{
+		. = ALIGN(_app_data_align);
+	} GROUP_DATA_LINK_IN(RAMABLE_REGION, RAMABLE_REGION)
 	__app_ram_end = .;
+	__app_ram_size = __app_ram_end - __app_ram_start;
 #endif /* CONFIG_APPLICATION_MEMORY */
 
     SECTION_DATA_PROLOGUE(_BSS_SECTION_NAME,(NOLOAD),)

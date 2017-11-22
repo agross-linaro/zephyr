@@ -613,11 +613,43 @@ endif()
 get_property(GKOF GLOBAL PROPERTY GENERATED_KERNEL_OBJECT_FILES)
 get_property(GKSF GLOBAL PROPERTY GENERATED_KERNEL_SOURCE_FILES)
 
+if(CONFIG_ARM_USERSPACE)
+  # For ARM based systems, the size of the application data section must
+  # be determined so that MPU alignment requirements can be met.
+  # Create a app_sizing_prebuilt target so we can do this before the
+  # other ELF files are built
+  set(GEN_APP_ALIGN $ENV{ZEPHYR_BASE}/scripts/gen_alignment_script.py)
+  set(ALIGN_SIZING_DEP app_sizing_prebuilt)
+  add_executable(       app_sizing_prebuilt misc/empty_file.c)
+  target_link_libraries(app_sizing_prebuilt -T${PROJECT_BINARY_DIR}/linker.cmd ${zephyr_lnk})
+  set_property(TARGET   app_sizing_prebuilt PROPERTY LINK_DEPENDS ${PROJECT_BINARY_DIR}/linker.cmd)
+  add_dependencies(     app_sizing_prebuilt linker_script offsets)
+endif()
+
 # FIXME: Is there any way to get rid of empty_file.c?
 add_executable(       zephyr_prebuilt misc/empty_file.c)
 target_link_libraries(zephyr_prebuilt -T${PROJECT_BINARY_DIR}/linker.cmd ${zephyr_lnk})
 set_property(TARGET   zephyr_prebuilt PROPERTY LINK_DEPENDS ${PROJECT_BINARY_DIR}/linker.cmd)
-add_dependencies(     zephyr_prebuilt linker_script offsets)
+add_dependencies(     zephyr_prebuilt ${ALIGN_SIZING_DEP} linker_script offsets)
+
+if(CONFIG_ARM_USERSPACE)
+  # Run the alignment fixup script to modify the __app_data_align in
+  # the linker.cmd.  This is PRE_BUILD so it is done before the
+  # zephyr_prebuilt.elf is created
+  add_custom_command(
+    TARGET zephyr_prebuilt
+    PRE_BUILD
+    COMMAND ${PYTHON_EXECUTABLE} ${GEN_APP_ALIGN}
+      --kernel $<TARGET_FILE:app_sizing_prebuilt>
+      --linker ${PROJECT_BINARY_DIR}/linker.cmd
+      > ${PROJECT_BINARY_DIR}/linker_resize.cmd
+      COMMAND ${CMAKE_COMMAND} -E copy
+      ${PROJECT_BINARY_DIR}/linker_resize.cmd
+      ${PROJECT_BINARY_DIR}/linker.cmd
+      VERBATIM
+      WORKING_DIRECTORY ${PROJECT_BINARY_DIR}/
+  )
+endif()
 
 if(GKOF OR GKSF)
   set(logical_target_for_zephyr_elf kernel_elf)
@@ -642,6 +674,7 @@ if(GKOF OR GKSF)
     VERBATIM
     WORKING_DIRECTORY ${PROJECT_BINARY_DIR}
     )
+
   add_custom_target(
     linker_pass2_script
     DEPENDS
@@ -653,6 +686,26 @@ if(GKOF OR GKSF)
   target_link_libraries(kernel_elf ${GKOF} -T${PROJECT_BINARY_DIR}/linker_pass2.cmd ${zephyr_lnk})
   set_property(TARGET   kernel_elf PROPERTY LINK_DEPENDS ${PROJECT_BINARY_DIR}/linker_pass2.cmd)
   add_dependencies(     kernel_elf linker_pass2_script)
+
+if(CONFIG_ARM_USERSPACE)
+  # Run the alignment fixup script to modify the __app_data_align in
+  # the linker_pass2.cmd.  This is PRE_BUILD so it is done before the
+  # final ELF file is created
+  add_custom_command(
+    TARGET kernel_elf
+    PRE_BUILD
+    COMMAND ${PYTHON_EXECUTABLE} ${GEN_APP_ALIGN}
+      --kernel $<TARGET_FILE:zephyr_prebuilt>
+      --linker ${PROJECT_BINARY_DIR}/linker_pass2.cmd
+      > ${PROJECT_BINARY_DIR}/linker_resize.cmd
+      COMMAND ${CMAKE_COMMAND} -E copy
+      ${PROJECT_BINARY_DIR}/linker_resize.cmd
+      ${PROJECT_BINARY_DIR}/linker_pass2.cmd
+      VERBATIM
+      WORKING_DIRECTORY ${PROJECT_BINARY_DIR}/
+  )
+endif()
+
 else()
   set(logical_target_for_zephyr_elf zephyr_prebuilt)
   # Use the prebuilt elf as the final elf since we don't have a
