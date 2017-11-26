@@ -241,6 +241,24 @@ void arm_core_mpu_configure(u8_t type, u32_t base, u32_t size)
 
 #if defined(CONFIG_USERSPACE)
 /**
+ * @brief configure regions for user stack context
+ *
+ * @param  thread   thread structure ptr
+ */
+void arm_core_mpu_configure_user_stack_context(struct k_thread *thread)
+{
+}
+
+/**
+ * @brief configure regions for privileged stack context
+ *
+ * @param  thread   thread structure ptr
+ */
+void arm_core_mpu_configure_privileged_stack_context(struct k_thread *thread)
+{
+}
+
+/**
  * @brief configure MPU regions for the memory partitions of the memory domain
  *
  * @param   mem_domain    memory domain that thread belongs to
