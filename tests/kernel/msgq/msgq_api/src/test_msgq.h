@@ -12,7 +12,7 @@
 #include <ztest.h>
 
 #define TIMEOUT 100
-#define STACK_SIZE 512
+#define STACK_SIZE 1024
 #define MSG_SIZE 4
 #define MSGQ_LEN 2
 #define MSG0 0xABCD
