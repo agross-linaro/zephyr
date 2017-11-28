@@ -466,8 +466,8 @@ set(zephyr_lnk
   ${LINKERFLAGPREFIX},--start-group
   ${LINKERFLAGPREFIX},--whole-archive
   ${ZEPHYR_LIBS_PROPERTY}
-  ${LINKERFLAGPREFIX},--no-whole-archive
   kernel
+  ${LINKERFLAGPREFIX},--no-whole-archive
   ${OFFSETS_O_PATH}
   ${LINKERFLAGPREFIX},--end-group
   ${LIB_INCLUDE_DIR}
