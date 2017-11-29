@@ -78,7 +78,6 @@
 
 #define REGION_USER_MODE_ATTR (MPU_REGION_READ | \
 				MPU_REGION_WRITE | \
-				MPU_REGION_EXEC | \
 				MPU_REGION_SU)
 
 /* Some helper defines for common regions */
