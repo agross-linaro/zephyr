@@ -323,7 +323,7 @@ void arm_core_mpu_configure_user_stack_context(struct k_thread *thread)
 		region_attr);
 
 	/* refresh SRAM regions */
-	nxp_mpu_setup_sram_region(base , CONFIG_PRIVILEGED_STACK_SIZE);
+	nxp_mpu_setup_sram_region(base, CONFIG_PRIVILEGED_STACK_SIZE);
 
 	/* configure app data portion */
 	index = _get_region_index_by_type(THREAD_APP_DATA_REGION);
