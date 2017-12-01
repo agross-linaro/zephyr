@@ -613,7 +613,7 @@ endif()
 get_property(GKOF GLOBAL PROPERTY GENERATED_KERNEL_OBJECT_FILES)
 get_property(GKSF GLOBAL PROPERTY GENERATED_KERNEL_SOURCE_FILES)
 
-if(CONFIG_ARM_USERSPACE)
+if(CONFIG_ARM_USERSPACE AND CONFIG_MPU_REQUIRES_POWER_OF_TWO_ALIGNMENT)
   # For ARM based systems, the size of the application data section must
   # be determined so that MPU alignment requirements can be met.
   # Create a app_sizing_prebuilt target so we can do this before the
@@ -632,7 +632,7 @@ target_link_libraries(zephyr_prebuilt -T${PROJECT_BINARY_DIR}/linker.cmd ${zephy
 set_property(TARGET   zephyr_prebuilt PROPERTY LINK_DEPENDS ${PROJECT_BINARY_DIR}/linker.cmd)
 add_dependencies(     zephyr_prebuilt ${ALIGN_SIZING_DEP} linker_script offsets)
 
-if(CONFIG_ARM_USERSPACE)
+if(CONFIG_ARM_USERSPACE AND CONFIG_MPU_REQUIRES_POWER_OF_TWO_ALIGNMENT)
   # Run the alignment fixup script to modify the __app_data_align in
   # the linker.cmd.  This is PRE_BUILD so it is done before the
   # zephyr_prebuilt.elf is created
@@ -687,7 +687,7 @@ if(GKOF OR GKSF)
   set_property(TARGET   kernel_elf PROPERTY LINK_DEPENDS ${PROJECT_BINARY_DIR}/linker_pass2.cmd)
   add_dependencies(     kernel_elf linker_pass2_script)
 
-if(CONFIG_ARM_USERSPACE)
+if(CONFIG_ARM_USERSPACE AND CONFIG_MPU_REQUIRES_POWER_OF_TWO_ALIGNMENT)
   # Run the alignment fixup script to modify the __app_data_align in
   # the linker_pass2.cmd.  This is PRE_BUILD so it is done before the
   # final ELF file is created
