@@ -355,6 +355,8 @@ typedef u32_t k_mem_partition_attr_t;
 
 #ifdef CONFIG_ARM_USERSPACE
 #ifndef _ASMLANGUAGE
+u8_t *_k_priv_stack_find(void *obj);
+
 /* Syscall invocation macros. arm-specific machine constraints used to ensure
  * args land in the proper registers.
  */
