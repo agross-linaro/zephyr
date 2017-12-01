@@ -116,8 +116,7 @@ config IDLE_STACK_SIZE
 	int
 	prompt "Size of stack for idle thread"
 	default 256
-	default 320 if ARC || (ARM && CPU_HAS_FPU && !USERSPACE)
-	default 512 if RISCV32 || (ARM && HAS_FPU && USERSPACE)
+	default 320 if ARC || (ARM && CPU_HAS_FPU)
 	default 1024 if XTENSA
 	help
 	Depending on the work that the idle task must do, most likely due to
