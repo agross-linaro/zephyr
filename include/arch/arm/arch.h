@@ -104,17 +104,6 @@ extern "C" {
 #endif
 
 /**
- * @brief Define alignment of a stack buffer
- *
- * This is used for two different things:
- * 1) Used in checks for stack size to be a multiple of the stack buffer
- *    alignment
- * 2) Used to determine the alignment of a stack buffer
- *
- */
-#define STACK_ALIGN	max(STACK_ALIGN_SIZE, MPU_GUARD_ALIGN_AND_SIZE)
-
-/**
  * @brief Declare a toplevel thread stack memory region
  *
  * This declares a region of memory suitable for use as a thread's stack.
@@ -134,15 +123,57 @@ extern "C" {
  * @param sym Thread stack symbol name
  * @param size Size of the stack memory region
  */
+
+#define POW2_CEIL(v) (1 + \
+(((((((((v) - 1) | (((v) - 1) >> 0x10) | \
+      (((v) - 1) | (((v) - 1) >> 0x10) >> 0x08)) | \
+     ((((v) - 1) | (((v) - 1) >> 0x10) | \
+      (((v) - 1) | (((v) - 1) >> 0x10) >> 0x08)) >> 0x04))) | \
+   ((((((v) - 1) | (((v) - 1) >> 0x10) | \
+      (((v) - 1) | (((v) - 1) >> 0x10) >> 0x08)) | \
+     ((((v) - 1) | (((v) - 1) >> 0x10) | \
+      (((v) - 1) | (((v) - 1) >> 0x10) >> 0x08)) >> 0x04))) >> 0x02))) | \
+ ((((((((v) - 1) | (((v) - 1) >> 0x10) | \
+      (((v) - 1) | (((v) - 1) >> 0x10) >> 0x08)) | \
+     ((((v) - 1) | (((v) - 1) >> 0x10) | \
+      (((v) - 1) | (((v) - 1) >> 0x10) >> 0x08)) >> 0x04))) | \
+   ((((((v) - 1) | (((v) - 1) >> 0x10) | \
+      (((v) - 1) | (((v) - 1) >> 0x10) >> 0x08)) | \
+     ((((v) - 1) | (((v) - 1) >> 0x10) | \
+      (((v) - 1) | (((v) - 1) >> 0x10) >> 0x08)) >> 0x04))) >> 0x02))) >> 0x01))))
+
+/**
+ * @brief Define alignment of a stack buffer
+ *
+ * This is used for two different things:
+ * 1) Used in checks for stack size to be a multiple of the stack buffer
+ *    alignment
+ * 2) Used to determine the alignment of a stack buffer
+ *
+ */
+#define STACK_ALIGN	max(STACK_ALIGN_SIZE, MPU_GUARD_ALIGN_AND_SIZE)
+
 #if defined(CONFIG_USERSPACE)
-#define _ARCH_THREAD_STACK_DEFINE(sym, size) \
-	struct _k_thread_stack_element __kernel_noinit __aligned(size) \
-		sym[size]
+#if defined(CONFIG_MPU_REQUIRES_POWER_OF_TWO_ALIGNMENT)
+#define ARM_STACK_SIZE(y) \
+	POW2_CEIL(y + CONFIG_PRIVILEGED_STACK_SIZE)
+#define ARM_STACK_ALIGN(y) \
+	ARM_STACK_SIZE(y)
 #else
-#define _ARCH_THREAD_STACK_DEFINE(sym, size) \
-	struct _k_thread_stack_element __kernel_noinit __aligned(STACK_ALIGN) \
-		sym[size+MPU_GUARD_ALIGN_AND_SIZE]
+#define ARM_STACK_SIZE(y) \
+	(y + CONFIG_PRIVILEGED_STACK_SIZE + MPU_GUARD_ALIGN_AND_SIZE)
+#define ARM_STACK_ALIGN(y) \
+	32
 #endif
+#else
+#define ARM_STACK_ALIGN(y) STACK_ALIGN
+#define ARM_STACK_SIZE(x) (x + MPU_GUARD_ALIGN_AND_SIZE)
+#endif
+
+#define _ARCH_THREAD_STACK_DEFINE(sym, size) \
+	struct _k_thread_stack_element __kernel_noinit \
+		__aligned(ARM_STACK_ALIGN(size)) \
+		sym[ARM_STACK_SIZE(size)]
 
 /**
  * @brief Declare a toplevel array of thread stack memory regions
@@ -157,15 +188,11 @@ extern "C" {
  * @param nmemb Number of stacks to declare
  * @param size Size of the stack memory region
  */
-#if defined(CONFIG_USERSPACE)
 #define _ARCH_THREAD_STACK_ARRAY_DEFINE(sym, nmemb, size) \
-	struct _k_thread_stack_element __kernel_noinit __aligned(size) \
-		sym[nmemb][size]
-#else
-#define _ARCH_THREAD_STACK_ARRAY_DEFINE(sym, nmemb, size) \
-	struct _k_thread_stack_element __kernel_noinit __aligned(STACK_ALIGN) \
-		sym[nmemb][size+MPU_GUARD_ALIGN_AND_SIZE]
-#endif
+	struct _k_thread_stack_element __kernel_noinit \
+		__aligned(ARM_STACK_ALIGN(size)) \
+		sym[nmemb][ARM_STACK_SIZE(size)]
+
 /**
  * @brief Declare an embedded stack memory region
  *
@@ -178,15 +205,9 @@ extern "C" {
  * @param sym Thread stack symbol name
  * @param size Size of the stack memory region
  */
-#if defined(CONFIG_USERSPACE)
 #define _ARCH_THREAD_STACK_MEMBER(sym, size) \
-	struct _k_thread_stack_element __aligned(size) \
-		sym[size]
-#else
-#define _ARCH_THREAD_STACK_MEMBER(sym, size) \
-	struct _k_thread_stack_element __aligned(STACK_ALIGN) \
-		sym[size+MPU_GUARD_ALIGN_AND_SIZE]
-#endif
+	struct _k_thread_stack_element __aligned(ARM_STACK_ALIGN(size)) \
+		sym[ARM_STACK_SIZE(size)]
 
 /**
  * @brief Return the size in bytes of a stack memory region
@@ -195,14 +216,21 @@ extern "C" {
  * since the underlying implementation may actually create something larger
  * (for instance a guard area).
  *
- * The value returned here is guaranteed to match the 'size' parameter
+ * The value returned here is NOT guaranteed to match the 'size' parameter
  * passed to K_THREAD_STACK_DEFINE and related macros.
+ *
+ * In the case of CONFIG_USERSPACE=y and
+ * CONFIG_MPU_REQUIRES_POWER_OF_2_ALIGNMENT, the size will be larger than the
+ * requested size.
+ *
+ * In all other configurations, the size will be correct.
  *
  * @param sym Stack memory symbol
  * @return Size of the stack
  */
 #if defined(CONFIG_USERSPACE)
-#define _ARCH_THREAD_STACK_SIZEOF(sym) (sizeof(sym))
+#define _ARCH_THREAD_STACK_SIZEOF(sym) \
+	 (sizeof(sym) - CONFIG_PRIVILEGED_STACK_SIZE - MPU_GUARD_ALIGN_AND_SIZE)
 #else
 #define _ARCH_THREAD_STACK_SIZEOF(sym) (sizeof(sym) - MPU_GUARD_ALIGN_AND_SIZE)
 #endif
@@ -218,13 +246,8 @@ extern "C" {
  * @param sym Declared stack symbol name
  * @return The buffer itself, a char *
  */
-#if defined(CONFIG_USERSPACE)
-#define _ARCH_THREAD_STACK_BUFFER(sym) \
-		((char *)(sym))
-#else
 #define _ARCH_THREAD_STACK_BUFFER(sym) \
 		((char *)(sym) + MPU_GUARD_ALIGN_AND_SIZE)
-#endif
 
 #ifdef CONFIG_USERSPACE
 #ifdef CONFIG_ARM_MPU

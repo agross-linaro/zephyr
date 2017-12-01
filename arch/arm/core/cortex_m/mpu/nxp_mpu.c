@@ -105,13 +105,13 @@ static inline u32_t _get_region_index_by_type(u32_t type)
 #if defined(CONFIG_USERSPACE)
 		return mpu_config.num_regions + type - 1;
 #elif defined(CONFIG_MPU_STACK_GUARD)
-		return mpu_config.num_regions + THREAD_STACK_GUARD_REGION;
+		return mpu_config.num_regions + type - 2;
 #else
 		/*
 		 * Start domain partition region from stack guard region
 		 * since stack guard is not enabled.
 		 */
-		return mpu_config.num_regions + THREAD_STACK_GUARD_REGION - 1;
+		return mpu_config.num_regions + type - 3;
 #endif
 	default:
 		__ASSERT(0, "Unsupported type");
@@ -265,7 +265,7 @@ void arm_core_mpu_configure(u8_t type, u32_t base, u32_t size)
 void arm_core_mpu_configure_privileged_stack_context(struct k_thread *thread)
 {
 	u32_t base = (u32_t)thread->stack_obj;
-	u32_t size = thread->stack_info.size;
+	u32_t size = thread->stack_info.size + CONFIG_PRIVILEGED_STACK_SIZE;
 	u32_t index;
 	u32_t region_attr;
 #if defined(CONFIG_MPU_STACK_GUARD)
@@ -274,11 +274,22 @@ void arm_core_mpu_configure_privileged_stack_context(struct k_thread *thread)
 	u32_t guard = 0;
 #endif
 	index = _get_region_index_by_type(THREAD_STACK_REGION);
-	region_attr = _get_region_attr_by_type(THREAD_STACK_REGION);
+	region_attr = _get_region_attr_by_type(THREAD_STACK_USER_REGION);
 
 	/* setup privileged stack region */
-	_region_init(index, base + guard, ENDADDR_ROUND(base + size),
+	_region_init(index, base + guard + CONFIG_PRIVILEGED_STACK_SIZE, ENDADDR_ROUND(base + size + guard),
 		     region_attr);
+
+	index = _get_region_index_by_type(THREAD_STACK_GUARD_REGION);
+#if defined(CONFIG_MPU_STACK_GUARD)
+	/* setup guard region */
+	region_attr = _get_region_attr_by_type(THREAD_STACK_GUARD_REGION);
+	_region_init(index, base, ENDADDR_ROUND(base + guard), region_attr);
+#else
+	SYSMPU->WORD[index][3] = 0;
+#endif
+	/* refresh SRAM regions */
+	nxp_mpu_setup_sram_region(base, guard);
 
 	/* configure app data portion */
 	index = _get_region_index_by_type(THREAD_APP_DATA_REGION);
@@ -287,16 +298,6 @@ void arm_core_mpu_configure_privileged_stack_context(struct k_thread *thread)
 	size = (u32_t)&__app_ram_end - (u32_t)&__app_ram_start;
 	if (size > 0)
 		_region_init(index, base, ENDADDR_ROUND(base + size), region_attr);
-
-#if defined(CONFIG_MPU_STACK_GUARD)
-	/* setup guard region */
-	index = _get_region_index_by_type(THREAD_STACK_GUARD_REGION);
-	region_attr = _get_region_attr_by_type(THREAD_STACK_GUARD_REGION);
-	_region_init(index, base, ENDADDR_ROUND(base + guard), region_attr);
-
-	/* refresh SRAM regions */
-	nxp_mpu_setup_sram_region(base, guard);
-#endif
 }
 
 /**
@@ -311,19 +312,25 @@ void arm_core_mpu_configure_user_stack_context(struct k_thread *thread)
 	u32_t index = _get_region_index_by_type(THREAD_STACK_REGION);
 	u32_t region_attr = _get_region_attr_by_type(THREAD_STACK_USER_REGION);
 
+#if defined(CONFIG_MPU_STACK_GUARD)
+	u32_t guard = MPU_GUARD_ALIGN_AND_SIZE;
+#else
+	u32_t guard = 0;
+#endif
 	/* configure stack */
-	_region_init(index, base + CONFIG_PRIVILEGED_STACK_SIZE,
-		ENDADDR_ROUND(base + size), region_attr);
+	_region_init(index, base + CONFIG_PRIVILEGED_STACK_SIZE + guard,
+		ENDADDR_ROUND(base + size + CONFIG_PRIVILEGED_STACK_SIZE + guard),
+		region_attr);
 
 	/* configure guard for kernel portion */
 	index = _get_region_index_by_type(THREAD_STACK_GUARD_REGION);
 	region_attr = _get_region_attr_by_type(THREAD_STACK_GUARD_REGION);
 	_region_init(index, base,
-		ENDADDR_ROUND(base + CONFIG_PRIVILEGED_STACK_SIZE),
+		ENDADDR_ROUND(base + CONFIG_PRIVILEGED_STACK_SIZE + guard),
 		region_attr);
 
 	/* refresh SRAM regions */
-	nxp_mpu_setup_sram_region(base, CONFIG_PRIVILEGED_STACK_SIZE);
+	nxp_mpu_setup_sram_region(base, CONFIG_PRIVILEGED_STACK_SIZE + guard);
 
 	/* configure app data portion */
 	index = _get_region_index_by_type(THREAD_APP_DATA_REGION);
@@ -472,6 +479,7 @@ int arm_core_mpu_buffer_validate(void *addr, size_t size, int write)
 		}
 	}
 
+        SYS_LOG_DBG("failing validate %p, %d\n", addr, size);
 	return -EPERM;
 }
 #endif /* CONFIG_USERSPACE */
