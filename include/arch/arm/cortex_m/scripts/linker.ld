@@ -274,8 +274,6 @@ SECTIONS
         KERNEL_INPUT_SECTION(".noinit.*")
 	*(".kernel_noinit.*")
 
-#include <linker/priv_stacks-noinit.ld>
-
         } GROUP_LINK_IN(RAMABLE_REGION)
 
     SECTION_DATA_PROLOGUE(_DATA_SECTION_NAME,,)

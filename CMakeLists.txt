@@ -500,7 +500,7 @@ endif()
 
 if(CONFIG_ARM_USERSPACE)
   set(GEN_PRIV_STACKS $ENV{ZEPHYR_BASE}/scripts/gen_priv_stacks.py)
-  set(PROCESS_PRIV_STACKS_GPERF $ENV{ZEPHYR_BASE}/scripts/process_priv_stacks_gperf.py)
+  set(PROCESS_PRIV_STACKS_GPERF $ENV{ZEPHYR_BASE}/scripts/process_gperf.py)
 
   set(PRIV_STACKS                    priv_stacks_hash.gperf)
   set(PRIV_STACKS_OUTPUT_SRC_PRE     priv_stacks_hash_preprocessed.c)
@@ -554,6 +554,7 @@ if(CONFIG_ARM_USERSPACE)
     ${PROCESS_PRIV_STACKS_GPERF}
     -i ${PRIV_STACKS_OUTPUT_SRC_PRE}
     -o ${PRIV_STACKS_OUTPUT_SRC}
+    -p "struct _k_priv_stack_map"
     $<$<BOOL:${CMAKE_VERBOSE_MAKEFILE}>:--verbose>
     DEPENDS priv_stacks_output_src_pre
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
@@ -666,6 +667,7 @@ if(CONFIG_USERSPACE)
     ${PROCESS_GPERF}
     -i ${OUTPUT_SRC_PRE}
     -o ${OUTPUT_SRC}
+    -p "struct _k_object"
     $<$<BOOL:${CMAKE_VERBOSE_MAKEFILE}>:--verbose>
     DEPENDS output_src_pre
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
