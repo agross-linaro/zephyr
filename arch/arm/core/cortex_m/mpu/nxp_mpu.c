@@ -257,6 +257,46 @@ void arm_core_mpu_configure(u8_t type, u32_t base, u32_t size)
 }
 
 #if defined(CONFIG_USERSPACE)
+void arm_core_mpu_configure_context(struct k_thread *thread)
+{
+	u32_t base = (u32_t)thread->stack_obj;
+	u32_t size = thread->stack_info.size;
+	u32_t index;
+	u32_t region_attr;
+#if 1
+#if defined(CONFIG_MPU_STACK_GUARD)
+	u32_t guard = MPU_GUARD_ALIGN_AND_SIZE;
+#else
+	u32_t guard = 0;
+#endif
+#endif
+	/* configure stack */
+	index = _get_region_index_by_type(THREAD_STACK_USER_REGION);
+	region_attr = _get_region_attr_by_type(THREAD_STACK_USER_REGION);
+	_region_init(index, base+guard, ENDADDR_ROUND(base + size + guard), region_attr);
+
+#if 0
+#if defined(CONFIG_MPU_STACK_GUARD)
+	/* setup guard region */
+	base = thread->arch.priv_stack_start;
+	region_attr = _get_region_attr_by_type(THREAD_STACK_GUARD_REGION);
+	_region_init(index, base, ENDADDR_ROUND(base + guard), region_attr);
+
+	/* refresh SRAM regions */
+	nxp_mpu_setup_sram_region(base, guard);
+#endif
+#endif
+	/* configure app data portion */
+	index = _get_region_index_by_type(THREAD_APP_DATA_REGION);
+	region_attr = _get_region_attr_by_type(THREAD_APP_DATA_REGION);
+	base = (u32_t)&__app_ram_start;
+	size = (u32_t)&__app_ram_end - (u32_t)&__app_ram_start;
+	if (size > 0)
+		_region_init(index, base, ENDADDR_ROUND(base + size), region_attr);
+}
+
+#if 0
+
 /**
  * @brief configure regions for privileged stack context
  *
@@ -340,6 +380,7 @@ void arm_core_mpu_configure_user_stack_context(struct k_thread *thread)
 	if (size > 0)
 		_region_init(index, base, ENDADDR_ROUND(base + size), region_attr);
 }
+#endif
 
 /**
  * @brief configure MPU regions for the memory partitions of the memory domain

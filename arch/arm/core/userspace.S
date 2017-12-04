@@ -71,7 +71,7 @@ SECTION_FUNC(TEXT,_arm_userspace_enter)
     /* setup arguments to thread_entry function */
     ldr r0, =_kernel
     ldr r0, [r0, #_kernel_offset_to_current]
-    bl configure_mpu_user_stack_context
+    bl configure_mpu_thread_context
 
     pop {r0,r1,r2,r3,r4,r5}
     /* change processor mode to unprivileged */
@@ -125,15 +125,9 @@ valid_syscall:
     /* setup priviliged stack */
     ldr r4, =_kernel
     ldr r4, [r4, #_kernel_offset_to_current]
-    ldr r5, [r4, #_thread_offset_to_stack_obj]    /* raw stack ptr */
+    ldr r5, [r4, #_thread_offset_to_priv_stack_start]    /* priv stack ptr */
     ldr r6, =CONFIG_PRIVILEGED_STACK_SIZE
     add r5, r6
-
-    /* reset stack permissions to allow for privileged access */
-    push {r0,r1,r2,r3,ip,lr}
-    mov r0, r4
-    bl configure_mpu_privileged_stack_context
-    pop {r0,r1,r2,r3,ip,lr}
 
     /* setup privileged stack frame */
     /* 16 bytes: arg5, arg6, ssf, 4 bytes padding */
@@ -157,13 +151,7 @@ dispatch_syscall:
     ldr ip, [sp,#8]
     msr PSP, ip
 
-    /* reset stack permissions to allow for unprivileged access */
-    push {r0,r1}
-    ldr r0, =_kernel
-    ldr r0, [r0, #_kernel_offset_to_current]
-    bl configure_mpu_user_stack_context
-
-    pop {r0,r1,r4,r5,r6,lr}
+    pop {r4,r5,r6,lr}
 
     /* drop privileges by setting bit 0 in CONTROL */
     mrs ip, CONTROL

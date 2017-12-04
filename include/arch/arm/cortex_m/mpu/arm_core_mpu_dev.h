@@ -74,6 +74,7 @@ void arm_core_mpu_configure(u8_t type, u32_t base, u32_t size);
  */
 void arm_core_mpu_configure_mem_domain(struct k_mem_domain *mem_domain);
 
+void arm_core_mpu_configure_context(struct k_thread *thread);
 /**
  * @brief configure MPU regions for user mode thread stacks
  *

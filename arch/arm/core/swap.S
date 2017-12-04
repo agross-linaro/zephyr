@@ -184,17 +184,11 @@ _thread_irq_disabled:
 
     add r0, r2, #0
     push {r2, lr}
-    mrs r1, CONTROL
-    tst r1, #0x1
-    beq configure_privileged_context
-    blx configure_mpu_user_stack_context
-    b post_stack_context
-configure_privileged_context:
-    blx configure_mpu_privileged_stack_context
-post_stack_context:
+    blx configure_mpu_thread_context
     pop {r2, lr}
+#endif
 
-#elif CONFIG_MPU_STACK_GUARD
+#ifdef CONFIG_MPU_STACK_GUARD
     /* r2 contains k_thread */
     add r0, r2, #0
     push {r2, lr}

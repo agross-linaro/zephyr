@@ -291,7 +291,6 @@ SECTIONS
 	} GROUP_DATA_LINK_IN(RAMABLE_REGION, ROMABLE_REGION)
 
     __data_rom_start = LOADADDR(_DATA_SECTION_NAME);
-
 #include <linker/common-ram.ld>
 #include <linker/priv_stacks.ld>
 #include <linker/kobject.ld>

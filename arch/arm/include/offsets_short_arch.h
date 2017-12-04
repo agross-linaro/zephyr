@@ -32,6 +32,9 @@
 #define _thread_offset_to_stack_info_size \
 	(_thread_offset_to_stack_info + ___thread_stack_info_t_size_OFFSET)
 
+#define _thread_offset_to_priv_stack_start \
+	(___thread_t_arch_OFFSET + ___thread_arch_t_priv_stack_start_OFFSET)
+
 /* end - threads */
 
 #endif /* _offsets_short_arch__h_ */

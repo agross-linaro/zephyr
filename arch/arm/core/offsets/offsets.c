@@ -29,6 +29,7 @@
 GEN_OFFSET_SYM(_thread_arch_t, basepri);
 GEN_OFFSET_SYM(_thread_arch_t, swap_return_value);
 GEN_OFFSET_SYM(_thread_arch_t, mode);
+GEN_OFFSET_SYM(_thread_arch_t, priv_stack_start);
 
 #ifdef CONFIG_FLOAT
 GEN_OFFSET_SYM(_thread_arch_t, preempt_float);

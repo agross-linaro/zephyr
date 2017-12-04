@@ -23,15 +23,32 @@
  */
 void configure_mpu_stack_guard(struct k_thread *thread)
 {
+	u32_t guard_size = MPU_GUARD_ALIGN_AND_SIZE;
+#if defined(CONFIG_USERSPACE)
+	u32_t guard_start = thread->arch.priv_stack_start ?
+			    (u32_t)thread->arch.priv_stack_start :
+			    (u32_t)thread->stack_obj;
+#else
+	u32_t guard_start = thread->stack_obj;
+#endif
+
 	arm_core_mpu_disable();
-	arm_core_mpu_configure(THREAD_STACK_GUARD_REGION,
-		thread->stack_info.start - MPU_GUARD_ALIGN_AND_SIZE,
-		thread->stack_info.size);
+	arm_core_mpu_configure(THREAD_STACK_GUARD_REGION, guard_start,
+			       guard_size);
 	arm_core_mpu_enable();
 }
 #endif
 
 #if defined(CONFIG_USERSPACE)
+void configure_mpu_thread_context(struct k_thread *thread)
+{
+	SYS_LOG_DBG("configure user thread %p's context", thread);
+	arm_core_mpu_disable();
+	arm_core_mpu_configure_context(thread);
+	arm_core_mpu_enable();
+}
+
+#if 0
 void configure_mpu_user_stack_context(struct k_thread *thread)
 {
 	SYS_LOG_DBG("configure user thread %p's stack context", thread);
@@ -47,6 +64,7 @@ void configure_mpu_privileged_stack_context(struct k_thread *thread)
 	arm_core_mpu_configure_privileged_stack_context(thread);
 	arm_core_mpu_enable();
 }
+#endif
 /*
  * @brief Configure MPU memory domain
  *
