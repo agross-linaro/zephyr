@@ -746,7 +746,7 @@ target_link_libraries(zephyr_prebuilt -T${PROJECT_BINARY_DIR}/linker.cmd priv_st
 set_property(TARGET   zephyr_prebuilt PROPERTY LINK_DEPENDS ${PROJECT_BINARY_DIR}/linker.cmd)
 add_dependencies(     zephyr_prebuilt ${ALIGN_SIZING_DEP} linker_script offsets)
 
-if(CONFIG_ARM_USERSPACE)
+if(CONFIG_ARM_USERSPACE AND CONFIG_MPU_REQUIRES_POWER_OF_TWO_ALIGNMENT)
   # Run the alignment fixup script to modify the __app_data_align in
   # the linker.cmd.  This is PRE_BUILD so it is done before the
   # zephyr_prebuilt.elf is created

@@ -133,7 +133,11 @@ extern "C" {
  * 2) Used to determine the alignment of a stack buffer
  *
  */
+#if defined(CONFIG_USERSPACE)
+#define STACK_ALIGN    32
+#else
 #define STACK_ALIGN    max(STACK_ALIGN_SIZE, MPU_GUARD_ALIGN_AND_SIZE)
+#endif
 
 #define POW2_CEIL(v) (1 + \
 (((((((((v) - 1) | (((v) - 1) >> 0x10) | \
