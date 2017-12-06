@@ -31,12 +31,13 @@ def get_symbols(obj):
 def parse_args():
     global args
 
+
     parser = argparse.ArgumentParser(description = __doc__,
             formatter_class = argparse.RawDescriptionHelpFormatter)
 
     parser.add_argument("-k", "--kernel", required=True,
             help="Input zephyr ELF binary")
-    parser.add_argument("-l", "--linker", required=True,
+    parser.add_argument("-o", "--output", required=True,
             help="Output linker file")
     parser.add_argument("-v", "--verbose", action="store_true",
             help="Print extra debugging information")
@@ -46,27 +47,27 @@ def parse_args():
 def main():
     parse_args()
 
+    bit_len = None
+
     with open(args.kernel, "rb") as fp:
         elf = ELFFile(fp)
         args.little_endian = elf.little_endian
         syms = get_symbols(elf)
 
-    app_ram_size = syms['__app_last_address_used'] - syms['__app_ram_start']
-    bit_len = app_ram_size.bit_length()
+        app_ram_size = syms['__app_last_address_used'] - syms['__app_ram_start']
+        bit_len = app_ram_size.bit_length()
 
-    if bit_len == 0:
-        align_size = 32
-    else:
+    if bit_len:
         align_size = 1 << bit_len
+    else:
+        align_size = 32
 
-    with open(args.linker, "r") as fp:
-        contents = fp.readlines()
-
-    for l in contents:
-        if ('_app_data_align =' in l):
-            sys.stdout.write(" _app_data_align = %d;\n" % align_size)
-        else:
-            sys.stdout.write(l)
+    with open(args.output, "w") as fp:
+       fp.write("/***********************************************\n")
+       fp.write(" * Generated file, do not modify\n")
+       fp.write(" **********************************************/\n")
+       fp.write("_app_data_align = " + str(align_size) + ";\n")
+       fp.write(". = ALIGN(_app_data_align);\n")
 
 if __name__ == "__main__":
     main()

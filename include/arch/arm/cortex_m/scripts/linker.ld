@@ -199,8 +199,9 @@ SECTIONS
 #ifdef CONFIG_APPLICATION_MEMORY
 	SECTION_DATA_PROLOGUE(_APP_DATA_SECTION_NAME, (OPTIONAL),)
 	{
-		_app_data_align = 32;
-		. = ALIGN(_app_data_align);
+
+#include <app_data_alignment.ld>
+
 		__app_ram_start = .;
 		__app_data_ram_start = .;
 		_image_ram_start = .;
