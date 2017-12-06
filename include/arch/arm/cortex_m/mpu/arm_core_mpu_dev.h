@@ -74,20 +74,12 @@ void arm_core_mpu_configure(u8_t type, u32_t base, u32_t size);
  */
 void arm_core_mpu_configure_mem_domain(struct k_mem_domain *mem_domain);
 
-void arm_core_mpu_configure_context(struct k_thread *thread);
 /**
- * @brief configure MPU regions for user mode thread stacks
+ * @brief configure MPU regions for a user thread's context
  *
- * @param   mem_domain    memory domain that thread belongs to
+ * @param	thread	thread to configure
  */
-void arm_core_mpu_configure_user_stack_context(struct k_thread *thread);
-
-/**
- * @brief configure MPU regions for privileged mode thread stacks
- *
- * @param   mem_domain    memory domain that thread belongs to
- */
-void arm_core_mpu_configure_privileged_stack_context(struct k_thread *thread);
+void arm_core_mpu_configure_user_context(struct k_thread *thread);
 
 /**
  * @brief configure MPU region for a single memory partition

@@ -184,7 +184,7 @@ _thread_irq_disabled:
 
     add r0, r2, #0
     push {r2, lr}
-    blx configure_mpu_thread_context
+    blx configure_mpu_user_context
     pop {r2, lr}
 #endif
 

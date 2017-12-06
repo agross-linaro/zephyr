@@ -71,7 +71,7 @@ SECTION_FUNC(TEXT,_arm_userspace_enter)
     /* setup arguments to thread_entry function */
     ldr r0, =_kernel
     ldr r0, [r0, #_kernel_offset_to_current]
-    bl configure_mpu_thread_context
+    bl configure_mpu_user_context
 
     pop {r0,r1,r2,r3,r4,r5}
     /* change processor mode to unprivileged */

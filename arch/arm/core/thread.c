@@ -94,7 +94,6 @@ void _new_thread(struct k_thread *thread, k_thread_stack_t *stack,
 #if CONFIG_ARM_USERSPACE
 	thread->arch.priv_stack_start = (u32_t)_k_priv_stack_find(stack);
 	thread->arch.priv_stack_size = (u32_t)CONFIG_PRIVILEGED_STACK_SIZE;
-	printk("priv_stack_start 0x%x\n", thread->arch.priv_stack_start);
 #endif
 
 	/* swap_return_value can contain garbage */

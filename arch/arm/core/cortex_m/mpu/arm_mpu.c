@@ -260,26 +260,14 @@ void arm_core_mpu_configure(u8_t type, u32_t base, u32_t size)
 }
 
 #if defined(CONFIG_USERSPACE)
-/**
- * @brief configure regions for user stack context
- *
- * @param  thread   thread structure ptr
- */
-void arm_core_mpu_configure_user_stack_context(struct k_thread *thread)
+void arm_core_mpu_configure_user_context(struct k_thread *thread)
 {
-	u32_t base = (u32_t)thread->stack_obj;
-	u32_t size = thread->stack_info.size + CONFIG_PRIVILEGED_STACK_SIZE;
-	u32_t index = _get_region_index_by_type(THREAD_STACK_REGION);
+	u32_t base = thread->stack_obj;
+	u32_t size = thread->stack_info.size;
+	u32_t index = _get_region_index_by_type(THREAD_STACK_USER_REGION);
 	u32_t region_attr = _get_region_attr_by_type(THREAD_STACK_USER_REGION,
 						     size);
-
 	/* configure stack */
-	_region_init(index, base, region_attr);
-
-	/* configure guard for kernel portion */
-	index = _get_region_index_by_type(THREAD_STACK_GUARD_REGION);
-	region_attr = _get_region_attr_by_type(THREAD_STACK_GUARD_REGION,
-					       CONFIG_PRIVILEGED_STACK_SIZE);
 	_region_init(index, base, region_attr);
 
 	/* configure app data portion */
@@ -288,39 +276,6 @@ void arm_core_mpu_configure_user_stack_context(struct k_thread *thread)
 	region_attr = _get_region_attr_by_type(THREAD_APP_DATA_REGION, size);
 	if (size > 0)
 		_region_init(index, (u32_t)&__app_ram_start, region_attr);
-}
-
-/**
- * @brief configure regions for privileged stack context
- *
- * @param  thread   thread structure ptr
- */
-void arm_core_mpu_configure_privileged_stack_context(struct k_thread *thread)
-{
-	u32_t base = (u32_t)thread->stack_obj;
-	u32_t size = thread->stack_info.size + CONFIG_PRIVILEGED_STACK_SIZE;
-	u32_t index = _get_region_index_by_type(THREAD_STACK_REGION);
-	u32_t region_attr = _get_region_attr_by_type(THREAD_STACK_REGION, size);
-
-	/* setup privileged stack region */
-	_region_init(index, base, region_attr);
-
-	index = _get_region_index_by_type(THREAD_STACK_GUARD_REGION);
-#if defined(CONFIG_MPU_STACK_GUARD)
-	region_attr = _get_region_attr_by_type(THREAD_STACK_GUARD_REGION,
-					       MPU_GUARD_ALIGN_AND_SIZE);
-	_region_init(index, base, region_attr);
-#else
-	ARM_MPU_DEV->rnr = index;
-	ARM_MPU_DEV->rbar = 0;
-	ARM_MPU_DEV->rasr = 0;
-#endif
-
-	/* configure app data portion */
-	index = _get_region_index_by_type(THREAD_APP_DATA_REGION);
-	size = (u32_t)&__app_ram_end - (u32_t)&__app_ram_start;
-	region_attr = _get_region_attr_by_type(THREAD_APP_DATA_REGION, size);
-	_region_init(index, (u32_t)&__app_ram_start, region_attr);
 }
 
 /**

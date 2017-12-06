@@ -30,6 +30,7 @@ void configure_mpu_stack_guard(struct k_thread *thread)
 			    (u32_t)thread->stack_obj;
 #else
 	u32_t guard_start = thread->stack_obj;
+
 #endif
 
 	arm_core_mpu_disable();
@@ -40,31 +41,22 @@ void configure_mpu_stack_guard(struct k_thread *thread)
 #endif
 
 #if defined(CONFIG_USERSPACE)
-void configure_mpu_thread_context(struct k_thread *thread)
+/*
+ * @brief Configure MPU user context
+ *
+ * This function configures the thread's user context.
+ * The functionality is meant to be used during context switch.
+ *
+ * @param thread thread info data structure.
+ */
+void configure_mpu_user_context(struct k_thread *thread)
 {
 	SYS_LOG_DBG("configure user thread %p's context", thread);
 	arm_core_mpu_disable();
-	arm_core_mpu_configure_context(thread);
+	arm_core_mpu_configure_user_context(thread);
 	arm_core_mpu_enable();
 }
 
-#if 0
-void configure_mpu_user_stack_context(struct k_thread *thread)
-{
-	SYS_LOG_DBG("configure user thread %p's stack context", thread);
-	arm_core_mpu_disable();
-	arm_core_mpu_configure_user_stack_context(thread);
-	arm_core_mpu_enable();
-}
-
-void configure_mpu_privileged_stack_context(struct k_thread *thread)
-{
-	SYS_LOG_DBG("configure privileged thread %p's stack context", thread);
-	arm_core_mpu_disable();
-	arm_core_mpu_configure_privileged_stack_context(thread);
-	arm_core_mpu_enable();
-}
-#endif
 /*
  * @brief Configure MPU memory domain
  *
