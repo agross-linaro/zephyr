@@ -430,6 +430,11 @@ if(CONFIG_APPLICATION_MEMORY)
     list(APPEND LINKER_SCRIPT_DEFINES -DKERNEL_OBJECT_FILE_${i}=${f})
     math(EXPR i "${i}+1")
   endforeach()
+
+  if(CONFIG_MPU_REQUIRES_POWER_OF_TWO_ALIGNMENT)
+    set(ALIGN_SIZING_DEP app_sizing_prebuilt linker_app_sizing_script)
+  endif()
+  set(PRIV_STACK_DEP priv_stacks_prebuilt)
 endif() # CONFIG_APPLICATION_MEMORY
 
 get_filename_component(BASE_NAME ${CMAKE_CURRENT_BINARY_DIR} NAME)
@@ -455,6 +460,7 @@ add_custom_command(
 add_custom_target(
   linker_script
   DEPENDS
+  ${ALIGN_SIZING_DEP} ${PRIV_STACK_DEP}
   linker.cmd
   offsets_h
 )
@@ -722,16 +728,17 @@ if(CONFIG_USERSPACE)
     )
 
   set_property(GLOBAL APPEND PROPERTY GENERATED_KERNEL_OBJECT_FILES output_obj_renamed_lib)
+
 endif()
 
 # Read global variables into local variables
 get_property(GKOF GLOBAL PROPERTY GENERATED_KERNEL_OBJECT_FILES)
 get_property(GKSF GLOBAL PROPERTY GENERATED_KERNEL_SOURCE_FILES)
 
+configure_file(
+     $ENV{ZEPHYR_BASE}/include/arch/arm/cortex_m/scripts/app_data_alignment.ld
+     ${PROJECT_BINARY_DIR}/include/generated/app_data_alignment.ld)
 if(CONFIG_ARM_USERSPACE)
-  configure_file(
-        $ENV{ZEPHYR_BASE}/include/arch/arm/cortex_m/scripts/app_data_alignment.ld
-        ${PROJECT_BINARY_DIR}/include/generated/app_data_alignment.ld)
 
   if(CONFIG_MPU_REQUIRES_POWER_OF_TWO_ALIGNMENT)
     add_custom_command(
@@ -765,7 +772,6 @@ if(CONFIG_ARM_USERSPACE)
     # Create a app_sizing_prebuilt target so we can do this before the
     # other ELF files are built
     set(GEN_APP_ALIGN $ENV{ZEPHYR_BASE}/scripts/gen_alignment_script.py)
-    set(ALIGN_SIZING_DEP app_sizing_prebuilt)
     add_executable(       app_sizing_prebuilt misc/empty_file.c)
     target_link_libraries(app_sizing_prebuilt -T${PROJECT_BINARY_DIR}/linker_app_sizing.cmd ${zephyr_lnk})
     set_property(TARGET   app_sizing_prebuilt PROPERTY LINK_DEPENDS ${PROJECT_BINARY_DIR}/linker_app_sizing.cmd)
@@ -779,7 +785,7 @@ if(CONFIG_ARM_USERSPACE)
       --kernel $<TARGET_FILE:app_sizing_prebuilt>
       VERBATIM
       WORKING_DIRECTORY ${PROJECT_BINARY_DIR}/
-  )
+   )
   endif()
 
   add_custom_command(
@@ -804,11 +810,12 @@ if(CONFIG_ARM_USERSPACE)
   add_custom_target(
     linker_priv_stacks_script
     DEPENDS
+    ${ALIGN_SIZING_DEP}
     linker_priv_stacks.cmd
     offsets_h
   )
 
-  set(PRIV_STACK_DEP priv_stacks_prebuilt)
+  set(PRIV_STACK_LIB priv_stacks_output_obj_renamed_lib)
   add_executable(       priv_stacks_prebuilt misc/empty_file.c)
   target_link_libraries(priv_stacks_prebuilt -T${PROJECT_BINARY_DIR}/linker_priv_stacks.cmd ${zephyr_lnk})
   set_property(TARGET   priv_stacks_prebuilt PROPERTY LINK_DEPENDS ${PROJECT_BINARY_DIR}/linker_priv_stacks.cmd)
@@ -818,7 +825,8 @@ endif()
 
 # FIXME: Is there any way to get rid of empty_file.c?
 add_executable(       zephyr_prebuilt misc/empty_file.c)
-target_link_libraries(zephyr_prebuilt -T${PROJECT_BINARY_DIR}/linker.cmd priv_stacks_output_obj_renamed_lib ${zephyr_lnk})
+target_link_libraries(zephyr_prebuilt -T${PROJECT_BINARY_DIR}/linker.cmd ${PRIV_STACK_LIB} ${zephyr_lnk})
+#target_link_libraries(zephyr_prebuilt -T${PROJECT_BINARY_DIR}/linker.cmd ${zephyr_lnk})
 set_property(TARGET   zephyr_prebuilt PROPERTY LINK_DEPENDS ${PROJECT_BINARY_DIR}/linker.cmd)
 add_dependencies(     zephyr_prebuilt ${ALIGN_SIZING_DEP} ${PRIV_STACK_DEP} linker_script offsets)
 
@@ -849,6 +857,8 @@ if(GKOF OR GKSF)
   add_custom_target(
     linker_pass2_script
     DEPENDS
+    ${ALIGN_SIZING_DEP} ${PRIV_STACK_DEP}
+    zephyr_prebuilt
     linker_pass2.cmd
     offsets_h
     )
@@ -856,7 +866,7 @@ if(GKOF OR GKSF)
   add_executable(       kernel_elf misc/empty_file.c ${GKSF})
   target_link_libraries(kernel_elf ${GKOF} -T${PROJECT_BINARY_DIR}/linker_pass2.cmd ${zephyr_lnk})
   set_property(TARGET   kernel_elf PROPERTY LINK_DEPENDS ${PROJECT_BINARY_DIR}/linker_pass2.cmd)
-  add_dependencies(     kernel_elf linker_pass2_script)
+  add_dependencies(     kernel_elf ${ALIGN_SIZING_DEP} ${PRIV_STACK_DEP} linker_pass2_script)
 
 else()
   set(logical_target_for_zephyr_elf zephyr_prebuilt)
