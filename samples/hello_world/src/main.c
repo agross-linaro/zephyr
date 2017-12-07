@@ -12,8 +12,6 @@ static K_THREAD_STACK_DEFINE(stack1, 1024);
 static struct k_thread __kernel thread0;
 static struct k_thread __kernel thread1;
 
-volatile char tbuffer[400];
-
 void print_stuff(void *id, void * unused1, void *unused2)
 {
 	ARG_UNUSED(id);
@@ -22,7 +20,6 @@ void print_stuff(void *id, void * unused1, void *unused2)
 
 	while (1) {
 		printk("%d: foo\n", (u32_t) id);
-                tbuffer[0] = (u32_t)id;
 		k_sleep(1000);
 	}
 }
