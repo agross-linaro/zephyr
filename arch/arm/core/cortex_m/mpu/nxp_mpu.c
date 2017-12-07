@@ -259,7 +259,7 @@ void arm_core_mpu_configure(u8_t type, u32_t base, u32_t size)
 #if defined(CONFIG_USERSPACE)
 void arm_core_mpu_configure_user_context(struct k_thread *thread)
 {
-	u32_t base = (u32_t)thread->stack_obj;
+	u32_t base = (u32_t)thread->stack_obj + MPU_GUARD_ALIGN_AND_SIZE;
 	u32_t size = thread->stack_info.size;
 	u32_t index = _get_region_index_by_type(THREAD_STACK_USER_REGION);
 	u32_t region_attr = _get_region_attr_by_type(THREAD_STACK_USER_REGION);

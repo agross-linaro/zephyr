@@ -84,7 +84,7 @@ static inline u32_t _get_region_attr_by_type(u32_t type, u32_t size)
 		return _get_region_attr(1, P_RW_U_RW, 0, 1, 0,
 					1, 0, region_size);
 	case THREAD_STACK_REGION:
-		return _get_region_attr(1, P_RW_U_NA, 0, 1, 0,
+		return _get_region_attr(1, P_RW_U_RW, 0, 1, 0,
 					1, 0, region_size);
 	case THREAD_STACK_GUARD_REGION:
 		return _get_region_attr(1, P_RO_U_NA, 0, 1, 0,
@@ -267,6 +267,13 @@ void arm_core_mpu_configure_user_context(struct k_thread *thread)
 	u32_t index = _get_region_index_by_type(THREAD_STACK_USER_REGION);
 	u32_t region_attr = _get_region_attr_by_type(THREAD_STACK_USER_REGION,
 						     size);
+
+	if (!thread->arch.priv_stack_start){
+		ARM_MPU_DEV->rnr = index;
+		ARM_MPU_DEV->rbar = 0;
+		ARM_MPU_DEV->rasr = 0;
+		return;
+	}
 	/* configure stack */
 	_region_init(index, base, region_attr);
 

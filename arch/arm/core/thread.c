@@ -56,6 +56,14 @@ void _new_thread(struct k_thread *thread, k_thread_stack_t *stack,
 {
 	char *pStackMem = K_THREAD_STACK_BUFFER(stack);
 
+#if CONFIG_ARM_USERSPACE
+#if CONFIG_MPU_REQUIRES_POWER_OF_TWO_ALIGNMENT
+	if (options & K_USER)
+		pStackMem -= MPU_GUARD_ALIGN_AND_SIZE;
+#endif
+#endif
+
+         printk("pStackMem %p\n", pStackMem);
 	_ASSERT_VALID_PRIO(priority, pEntry);
 
 	char *stackEnd = pStackMem + stackSize;
@@ -92,8 +100,13 @@ void _new_thread(struct k_thread *thread, k_thread_stack_t *stack,
 	thread->arch.mode = 0;
 
 #if CONFIG_ARM_USERSPACE
-	thread->arch.priv_stack_start = (u32_t)_k_priv_stack_find(stack);
-	thread->arch.priv_stack_size = (u32_t)CONFIG_PRIVILEGED_STACK_SIZE;
+	if (options & K_USER) {
+		thread->arch.priv_stack_start = (u32_t)_k_priv_stack_find(stack);
+		thread->arch.priv_stack_size = (u32_t)CONFIG_PRIVILEGED_STACK_SIZE;
+	} else {
+		thread->arch.priv_stack_start = 0;
+		thread->arch.priv_stack_size = 0;
+	}
 #endif
 
 	/* swap_return_value can contain garbage */

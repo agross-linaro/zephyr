@@ -246,8 +246,13 @@ extern "C" {
  * @param sym Declared stack symbol name
  * @return The buffer itself, a char *
  */
+#if defined(CONFIG_USERSPACE) && defined(CONFIG_MPU_REQUIRES_POWER_OF_TWO_ALIGNMENT)
+#define _ARCH_THREAD_STACK_BUFFER(sym) \
+		((char *)(sym))
+#else
 #define _ARCH_THREAD_STACK_BUFFER(sym) \
 		((char *)(sym) + MPU_GUARD_ALIGN_AND_SIZE)
+#endif
 
 #ifdef CONFIG_USERSPACE
 #ifdef CONFIG_ARM_MPU
