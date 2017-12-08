@@ -144,8 +144,12 @@ static void write_kernel_data(void)
 volatile int *ptr = NULL;
 #if defined(CONFIG_X86)
 volatile size_t size = MMU_PAGE_SIZE;
-#elif defined(CONFIG_ARM) && defined(CONFIG_PRIVILEGED_STACK_SIZE)
-volatile size_t size = CONFIG_ZTEST_STACKSIZE - CONFIG_PRIVILEGED_STACK_SIZE;
+#elif defined(CONFIG_ARM)
+#if defined(CONFIG_MPU_REQUIRES_POWER_OF_TWO_ALIGNMENT)
+volatile size_t size = POW2_CEIL(CONFIG_ZTEST_STACKSIZE);
+#else
+volatile size_t size = CONFIG_ZTEST_STACKSIZE + MPU_GUARD_ALIGN_AND_SIZE;
+#endif
 #else
 volatile size_t size = 512;
 #endif
