@@ -430,12 +430,16 @@ if(CONFIG_APPLICATION_MEMORY)
     list(APPEND LINKER_SCRIPT_DEFINES -DKERNEL_OBJECT_FILE_${i}=${f})
     math(EXPR i "${i}+1")
   endforeach()
+endif() # CONFIG_APPLICATION_MEMORY
 
+# Declare ARM userspace dependencies before the linker scripts to make
+# sure the order of dependencies are met 
+if(CONFIG_ARM_USERSPACE)
   if(CONFIG_MPU_REQUIRES_POWER_OF_TWO_ALIGNMENT)
     set(ALIGN_SIZING_DEP app_sizing_prebuilt linker_app_sizing_script)
   endif()
   set(PRIV_STACK_DEP priv_stacks_prebuilt)
-endif() # CONFIG_APPLICATION_MEMORY
+endif()
 
 get_filename_component(BASE_NAME ${CMAKE_CURRENT_BINARY_DIR} NAME)
 add_custom_command(
