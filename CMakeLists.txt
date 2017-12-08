@@ -477,6 +477,12 @@ if(CONFIG_APPLICATION_MEMORY)
   endforeach()
 endif() # CONFIG_APPLICATION_MEMORY
 
+# Declare ARM userspace dependencies before the linker scripts to make
+# sure the order of dependencies are met
+if(CONFIG_ARM_USERSPACE AND CONFIG_MPU_REQUIRES_POWER_OF_TWO_ALIGNMENT)
+  set(ALIGN_SIZING_DEP app_sizing_prebuilt linker_app_sizing_script)
+endif()
+
 get_filename_component(BASE_NAME ${CMAKE_CURRENT_BINARY_DIR} NAME)
 add_custom_command(
   OUTPUT linker.cmd
@@ -496,9 +502,11 @@ add_custom_command(
   VERBATIM
   WORKING_DIRECTORY ${PROJECT_BINARY_DIR}
 )
+
 add_custom_target(
   linker_script
   DEPENDS
+  ${ALIGN_SIZING_DEP}
   linker.cmd
   offsets_h
 )
@@ -658,11 +666,61 @@ endif()
 get_property(GKOF GLOBAL PROPERTY GENERATED_KERNEL_OBJECT_FILES)
 get_property(GKSF GLOBAL PROPERTY GENERATED_KERNEL_SOURCE_FILES)
 
+configure_file(
+     $ENV{ZEPHYR_BASE}/include/arch/arm/cortex_m/scripts/app_data_alignment.ld
+     ${PROJECT_BINARY_DIR}/include/generated/app_data_alignment.ld)
+if(CONFIG_ARM_USERSPACE AND CONFIG_MPU_REQUIRES_POWER_OF_TWO_ALIGNMENT)
+  add_custom_command(
+    OUTPUT linker_app_sizing.cmd
+    DEPENDS ${LINKER_SCRIPT}
+    ${LINKER_SCRIPT_DEP}
+    # NB: This COMMAND is copy-pasted to generate linker_pass2.cmd
+    # TODO: Remove duplication
+    COMMAND ${CMAKE_C_COMPILER}
+    -x assembler-with-cpp
+    -nostdinc
+    -undef
+    -MD -MF linker_app_sizing.cmd.dep -MT ${BASE_NAME}/linker_app_sizing.cmd
+    ${ZEPHYR_INCLUDES}
+    ${LINKER_SCRIPT_DEFINES}
+    -E ${LINKER_SCRIPT} -P
+    -o linker_app_sizing.cmd
+    VERBATIM
+    WORKING_DIRECTORY ${PROJECT_BINARY_DIR}
+  )
+
+  add_custom_target(
+    linker_app_sizing_script
+    DEPENDS
+    linker_app_sizing.cmd
+    offsets_h
+  )
+
+  # For ARM based systems, the size of the application data section must
+  # be determined so that MPU alignment requirements can be met.
+  # Create a app_sizing_prebuilt target so we can do this before the
+  # other ELF files are built
+  set(GEN_APP_ALIGN $ENV{ZEPHYR_BASE}/scripts/gen_alignment_script.py)
+  add_executable(       app_sizing_prebuilt misc/empty_file.c)
+  target_link_libraries(app_sizing_prebuilt -T${PROJECT_BINARY_DIR}/linker_app_sizing.cmd ${zephyr_lnk})
+  set_property(TARGET   app_sizing_prebuilt PROPERTY LINK_DEPENDS ${PROJECT_BINARY_DIR}/linker_app_sizing.cmd)
+  add_dependencies(     app_sizing_prebuilt linker_app_sizing_script offsets)
+
+  add_custom_command(
+    TARGET app_sizing_prebuilt
+    POST_BUILD
+    COMMAND ${PYTHON_EXECUTABLE} ${GEN_APP_ALIGN}
+    --output ./include/generated/app_data_alignment.ld
+    --kernel $<TARGET_FILE:app_sizing_prebuilt>
+    VERBATIM
+    WORKING_DIRECTORY ${PROJECT_BINARY_DIR}/
+  )
+endif()
 # FIXME: Is there any way to get rid of empty_file.c?
 add_executable(       zephyr_prebuilt misc/empty_file.c)
 target_link_libraries(zephyr_prebuilt -T${PROJECT_BINARY_DIR}/linker.cmd ${zephyr_lnk})
 set_property(TARGET   zephyr_prebuilt PROPERTY LINK_DEPENDS ${PROJECT_BINARY_DIR}/linker.cmd)
-add_dependencies(     zephyr_prebuilt linker_script offsets)
+add_dependencies(     zephyr_prebuilt ${ALIGN_SIZING_DEP} linker_script offsets)
 
 if(GKOF OR GKSF)
   set(logical_target_for_zephyr_elf kernel_elf)
@@ -690,6 +748,8 @@ if(GKOF OR GKSF)
   add_custom_target(
     linker_pass2_script
     DEPENDS
+    ${ALIGN_SIZING_DEP}
+    zephyr_prebuilt
     linker_pass2.cmd
     offsets_h
     )
@@ -697,7 +757,7 @@ if(GKOF OR GKSF)
   add_executable(       kernel_elf misc/empty_file.c ${GKSF})
   target_link_libraries(kernel_elf ${GKOF} -T${PROJECT_BINARY_DIR}/linker_pass2.cmd ${zephyr_lnk})
   set_property(TARGET   kernel_elf PROPERTY LINK_DEPENDS ${PROJECT_BINARY_DIR}/linker_pass2.cmd)
-  add_dependencies(     kernel_elf linker_pass2_script)
+  add_dependencies(     kernel_elf ${ALIGN_SIZING_DEP} linker_pass2_script)
 else()
   set(logical_target_for_zephyr_elf zephyr_prebuilt)
   # Use the prebuilt elf as the final elf since we don't have a
