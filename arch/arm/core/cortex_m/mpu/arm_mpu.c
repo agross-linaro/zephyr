@@ -12,6 +12,7 @@
 #include <arch/arm/cortex_m/mpu/arm_mpu.h>
 #include <arch/arm/cortex_m/mpu/arm_core_mpu.h>
 #include <logging/sys_log.h>
+#include <linker/linker-defs.h>
 
 #define ARM_MPU_DEV ((volatile struct arm_mpu *) ARM_MPU_BASE)
 
@@ -29,77 +30,6 @@ static inline u32_t _get_region_attr(u32_t xn, u32_t ap, u32_t tex,
 {
 	return ((xn << 28) | (ap) | (tex << 19) | (s << 18)
 		| (c << 17) | (b << 16) | (srd << 5) | (size));
-}
-
-/**
- * This internal function is utilized by the MPU driver to parse the intent
- * type (i.e. THREAD_STACK_REGION) and return the correct parameter set.
- */
-static inline u32_t _get_region_attr_by_type(u32_t type, u32_t size)
-{
-	switch (type) {
-	case THREAD_STACK_REGION:
-		return 0;
-	case THREAD_STACK_GUARD_REGION:
-		return _get_region_attr(1, P_RO_U_RO, 0, 1, 0,
-					1, 0, REGION_32B);
-	default:
-		/* Size 0 region */
-		return 0;
-	}
-}
-
-static inline u8_t _get_num_regions(void)
-{
-	u32_t type = ARM_MPU_DEV->type;
-
-	type = (type & 0xFF00) >> 8;
-
-	return (u8_t)type;
-}
-
-static void _region_init(u32_t index, u32_t region_addr,
-			 u32_t region_attr)
-{
-	/* Select the region you want to access */
-	ARM_MPU_DEV->rnr = index;
-	/* Configure the region */
-	ARM_MPU_DEV->rbar = (region_addr & REGION_BASE_ADDR_MASK)
-				| REGION_VALID | index;
-	ARM_MPU_DEV->rasr = region_attr | REGION_ENABLE;
-}
-
-/**
- * This internal function is utilized by the MPU driver to parse the intent
- * type (i.e. THREAD_STACK_REGION) and return the correct region index.
- */
-static inline u32_t _get_region_index_by_type(u32_t type)
-{
-	/*
-	 * The new MPU regions are allocated per type after the statically
-	 * configured regions. The type is one-indexed rather than
-	 * zero-indexed, therefore we need to subtract by one to get the region
-	 * index.
-	 */
-	switch (type) {
-	case THREAD_STACK_REGION:
-		return mpu_config.num_regions + type - 1;
-	case THREAD_STACK_GUARD_REGION:
-		return mpu_config.num_regions + type - 1;
-	case THREAD_DOMAIN_PARTITION_REGION:
-#if defined(CONFIG_MPU_STACK_GUARD)
-		return mpu_config.num_regions + type - 1;
-#else
-		/*
-		 * Start domain partition region from stack guard region
-		 * since stack guard is not enabled.
-		 */
-		return mpu_config.num_regions + type - 2;
-#endif
-	default:
-		__ASSERT(0, "Unsupported type");
-		return 0;
-	}
 }
 
 static inline u32_t round_up_to_next_power_of_two(u32_t v)
@@ -138,6 +68,92 @@ static inline u32_t _size_to_mpu_rasr_size(u32_t size)
 	size = round_up_to_next_power_of_two(size);
 
 	return (find_msb_set(size) - 2) << 1;
+}
+
+
+/**
+ * This internal function is utilized by the MPU driver to parse the intent
+ * type (i.e. THREAD_STACK_REGION) and return the correct parameter set.
+ */
+static inline u32_t _get_region_attr_by_type(u32_t type, u32_t size)
+{
+	int region_size = _size_to_mpu_rasr_size(size);
+
+	switch (type) {
+	case THREAD_STACK_USER_REGION:
+		return _get_region_attr(1, P_RW_U_RW, 0, 1, 0,
+					1, 0, region_size);
+	case THREAD_STACK_REGION:
+		return _get_region_attr(1, P_RW_U_RW, 0, 1, 0,
+					1, 0, region_size);
+	case THREAD_STACK_GUARD_REGION:
+		return _get_region_attr(1, P_RO_U_NA, 0, 1, 0,
+					1, 0, region_size);
+	case THREAD_APP_DATA_REGION:
+		return _get_region_attr(1, P_RW_U_RW, 0, 1, 0,
+					1, 0, region_size);
+	default:
+		/* Size 0 region */
+		return 0;
+	}
+}
+
+static inline u8_t _get_num_regions(void)
+{
+	u32_t type = ARM_MPU_DEV->type;
+
+	type = (type & 0xFF00) >> 8;
+
+	return (u8_t)type;
+}
+
+static void _region_init(u32_t index, u32_t region_addr,
+			 u32_t region_attr)
+{
+	/* Select the region you want to access */
+	ARM_MPU_DEV->rnr = index;
+	/* Configure the region */
+	ARM_MPU_DEV->rbar = (region_addr & REGION_BASE_ADDR_MASK)
+				| REGION_VALID | index;
+	ARM_MPU_DEV->rasr = region_attr | REGION_ENABLE;
+	SYS_LOG_DBG("[%d] 0x%08x 0x%08x", index, region_addr, region_attr);
+}
+
+/**
+ * This internal function is utilized by the MPU driver to parse the intent
+ * type (i.e. THREAD_STACK_REGION) and return the correct region index.
+ */
+static inline u32_t _get_region_index_by_type(u32_t type)
+{
+	/*
+	 * The new MPU regions are allocated per type after the statically
+	 * configured regions. The type is one-indexed rather than
+	 * zero-indexed, therefore we need to subtract by one to get the region
+	 * index.
+	 */
+	switch (type) {
+	case THREAD_STACK_USER_REGION:
+		return mpu_config.num_regions + THREAD_STACK_REGION - 1;
+	case THREAD_STACK_REGION:
+	case THREAD_STACK_GUARD_REGION:
+	case THREAD_APP_DATA_REGION:
+		return mpu_config.num_regions + type - 1;
+	case THREAD_DOMAIN_PARTITION_REGION:
+#if defined(CONFIG_USERSPACE)
+		return mpu_config.num_regions + type - 1;
+#elif defined(CONFIG_MPU_STACK_GUARD)
+		return mpu_config.num_regions + type - 2;
+#else
+		/*
+		 * Start domain partition region from stack guard region
+		 * since stack guard is not enabled.
+		 */
+		return mpu_config.num_regions + type - 3;
+#endif
+	default:
+		__ASSERT(0, "Unsupported type");
+		return 0;
+	}
 }
 
 /**
@@ -181,6 +197,10 @@ static inline int _is_user_accessible_region(u32_t r_index, int write)
 
 	ARM_MPU_DEV->rnr = r_index;
 	r_ap = ARM_MPU_DEV->rasr & ACCESS_PERMS_MASK;
+
+	/* always return true if this is the thread stack region */
+	if (_get_region_index_by_type(THREAD_STACK_REGION) == r_index)
+		return 1;
 
 	if (write) {
 		return r_ap == P_RW_U_RW;
@@ -242,7 +262,27 @@ void arm_core_mpu_configure(u8_t type, u32_t base, u32_t size)
 #if defined(CONFIG_USERSPACE)
 void arm_core_mpu_configure_user_context(struct k_thread *thread)
 {
-	return 0;
+	u32_t base = (u32_t)thread->stack_obj;
+	u32_t size = thread->stack_info.size;
+	u32_t index = _get_region_index_by_type(THREAD_STACK_USER_REGION);
+	u32_t region_attr = _get_region_attr_by_type(THREAD_STACK_USER_REGION,
+						     size);
+
+	if (!thread->arch.priv_stack_start) {
+		ARM_MPU_DEV->rnr = index;
+		ARM_MPU_DEV->rbar = 0;
+		ARM_MPU_DEV->rasr = 0;
+		return;
+	}
+	/* configure stack */
+	_region_init(index, base, region_attr);
+
+	/* configure app data portion */
+	index = _get_region_index_by_type(THREAD_APP_DATA_REGION);
+	size = (u32_t)&__app_ram_end - (u32_t)&__app_ram_start;
+	region_attr = _get_region_attr_by_type(THREAD_APP_DATA_REGION, size);
+	if (size > 0)
+		_region_init(index, (u32_t)&__app_ram_start, region_attr);
 }
 
 /**
