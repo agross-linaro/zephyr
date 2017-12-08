@@ -12,5 +12,14 @@ config SOC_TI_LM3S6965_QEMU
 	def_bool y
 	# Platform has only been tested on QEMU, not on real hardware, so always
 	# assume it is used for a QEMU target.
+	select CPU_HAS_MPU
+
+config QEMU_ARM_MPU_ENABLE
+	bool "Enable MPU"
+	depends on CPU_HAS_MPU
+	select ARM_MPU
+	default n
+	help
+	Enable MPU
 
 endif # SOC_TI_LM3S6965

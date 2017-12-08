@@ -5,3 +5,8 @@ config SOC_TI_LM3S6965
 	select CPU_CORTEX_M3
 	select CPU_HAS_SYSTICK
 
+if SOC_TI_LM3S6965
+config SOC_FAMILY
+	string
+	default ti_lm3s6965
+endif

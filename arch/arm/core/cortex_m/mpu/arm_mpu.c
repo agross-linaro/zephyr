@@ -31,18 +31,58 @@ static inline u32_t _get_region_attr(u32_t xn, u32_t ap, u32_t tex,
 		| (c << 17) | (b << 16) | (srd << 5) | (size));
 }
 
+static inline u32_t round_up_to_next_power_of_two(u32_t v)
+{
+	v--;
+	v |= v >> 1;
+	v |= v >> 2;
+	v |= v >> 4;
+	v |= v >> 8;
+	v |= v >> 16;
+	v++;
+
+	return v;
+}
+
+/**
+ * This internal function converts the region size to
+ * the SIZE field value of MPU_RASR.
+ */
+static inline u32_t _size_to_mpu_rasr_size(u32_t size)
+{
+	/* The minimal supported region size is 32 bytes */
+	if (size <= 32) {
+		return REGION_32B;
+	}
+
+	/*
+	 * A size value greater than 2^31 could not be handled by
+	 * round_up_to_next_power_of_two() properly. We handle
+	 * it separately here.
+	 */
+	if (size > (1 << 31)) {
+		return REGION_4G;
+	}
+
+	size = round_up_to_next_power_of_two(size);
+
+	return (find_msb_set(size) - 2) << 1;
+}
+
 /**
  * This internal function is utilized by the MPU driver to parse the intent
  * type (i.e. THREAD_STACK_REGION) and return the correct parameter set.
  */
 static inline u32_t _get_region_attr_by_type(u32_t type, u32_t size)
 {
+	u32_t size_field = _size_to_mpu_rasr_size(size);
+
 	switch (type) {
 	case THREAD_STACK_REGION:
 		return 0;
 	case THREAD_STACK_GUARD_REGION:
 		return _get_region_attr(1, P_RO_U_RO, 0, 1, 0,
-					1, 0, REGION_32B);
+					1, 0, size_field);
 	default:
 		/* Size 0 region */
 		return 0;
@@ -100,44 +140,6 @@ static inline u32_t _get_region_index_by_type(u32_t type)
 		__ASSERT(0, "Unsupported type");
 		return 0;
 	}
-}
-
-static inline u32_t round_up_to_next_power_of_two(u32_t v)
-{
-	v--;
-	v |= v >> 1;
-	v |= v >> 2;
-	v |= v >> 4;
-	v |= v >> 8;
-	v |= v >> 16;
-	v++;
-
-	return v;
-}
-
-/**
- * This internal function converts the region size to
- * the SIZE field value of MPU_RASR.
- */
-static inline u32_t _size_to_mpu_rasr_size(u32_t size)
-{
-	/* The minimal supported region size is 32 bytes */
-	if (size <= 32) {
-		return REGION_32B;
-	}
-
-	/*
-	 * A size value greater than 2^31 could not be handled by
-	 * round_up_to_next_power_of_two() properly. We handle
-	 * it separately here.
-	 */
-	if (size > (1 << 31)) {
-		return REGION_4G;
-	}
-
-	size = round_up_to_next_power_of_two(size);
-
-	return (find_msb_set(size) - 2) << 1;
 }
 
 /**

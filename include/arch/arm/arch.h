@@ -98,7 +98,11 @@ extern "C" {
  *
  */
 #if defined(CONFIG_MPU_STACK_GUARD)
+#if defined(CONFIG_QEMU_ARM_MPU_ENABLE)
+#define MPU_GUARD_ALIGN_AND_SIZE	1024
+#else
 #define MPU_GUARD_ALIGN_AND_SIZE	32
+#endif
 #else
 #define MPU_GUARD_ALIGN_AND_SIZE	0
 #endif
