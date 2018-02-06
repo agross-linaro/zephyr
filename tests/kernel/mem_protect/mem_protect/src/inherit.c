@@ -18,7 +18,7 @@ K_TIMER_DEFINE(inherit_timer, dummy_start, dummy_end);
 K_MSGQ_DEFINE(inherit_msgq, MSG_Q_SIZE, MSG_Q_MAX_NUM_MSGS, MSG_Q_ALIGN);
 __kernel struct k_thread test_1_tid;
 
-u8_t MEM_DOMAIN_ALIGNMENT inherit_buf[MEM_REGION_ALLOC]; /* for mem domain */
+__kernel u8_t MEM_DOMAIN_ALIGNMENT inherit_buf[MEM_REGION_ALLOC]; /* for mem domain */
 
 K_MEM_PARTITION_DEFINE(inherit_memory_partition,
 		       inherit_buf,
