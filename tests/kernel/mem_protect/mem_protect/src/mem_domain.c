@@ -13,21 +13,23 @@
 K_THREAD_STACK_DEFINE(mem_domain_1_stack, MEM_DOMAIN_STACK_SIZE);
 K_THREAD_STACK_DEFINE(mem_domain_2_stack, MEM_DOMAIN_STACK_SIZE);
 K_THREAD_STACK_DEFINE(mem_domain_6_stack, MEM_DOMAIN_STACK_SIZE);
-__kernel struct k_thread mem_domain_1_tid, mem_domain_2_tid, mem_domain_6_tid;
+K_THREAD_STACK_DEFINE(mem_domain_6_stack2, MEM_DOMAIN_STACK_SIZE);
+__kernel struct k_thread mem_domain_1_tid, mem_domain_2_tid, mem_domain_6_tid,
+mem_domain_6_tid2;
 
 /****************************************************************************/
 /* The mem domains needed.*/
 u8_t MEM_DOMAIN_ALIGNMENT mem_domain_buf[MEM_REGION_ALLOC];
 
 /* partitions added later in the test cases.*/
-u8_t MEM_DOMAIN_ALIGNMENT mem_domain_tc3_part1[MEM_REGION_ALLOC];
-u8_t MEM_DOMAIN_ALIGNMENT mem_domain_tc3_part2[MEM_REGION_ALLOC];
-u8_t MEM_DOMAIN_ALIGNMENT mem_domain_tc3_part3[MEM_REGION_ALLOC];
-u8_t MEM_DOMAIN_ALIGNMENT mem_domain_tc3_part4[MEM_REGION_ALLOC];
-u8_t MEM_DOMAIN_ALIGNMENT mem_domain_tc3_part5[MEM_REGION_ALLOC];
-u8_t MEM_DOMAIN_ALIGNMENT mem_domain_tc3_part6[MEM_REGION_ALLOC];
-u8_t MEM_DOMAIN_ALIGNMENT mem_domain_tc3_part7[MEM_REGION_ALLOC];
-u8_t MEM_DOMAIN_ALIGNMENT mem_domain_tc3_part8[MEM_REGION_ALLOC];
+__kernel u8_t MEM_DOMAIN_ALIGNMENT mem_domain_tc3_part1[MEM_REGION_ALLOC];
+__kernel u8_t MEM_DOMAIN_ALIGNMENT mem_domain_tc3_part2[MEM_REGION_ALLOC];
+__kernel u8_t MEM_DOMAIN_ALIGNMENT mem_domain_tc3_part3[MEM_REGION_ALLOC];
+__kernel u8_t MEM_DOMAIN_ALIGNMENT mem_domain_tc3_part4[MEM_REGION_ALLOC];
+__kernel u8_t MEM_DOMAIN_ALIGNMENT mem_domain_tc3_part5[MEM_REGION_ALLOC];
+__kernel u8_t MEM_DOMAIN_ALIGNMENT mem_domain_tc3_part6[MEM_REGION_ALLOC];
+__kernel u8_t MEM_DOMAIN_ALIGNMENT mem_domain_tc3_part7[MEM_REGION_ALLOC];
+__kernel u8_t MEM_DOMAIN_ALIGNMENT mem_domain_tc3_part8[MEM_REGION_ALLOC];
 
 K_MEM_PARTITION_DEFINE(mem_domain_memory_partition,
 		       mem_domain_buf,
@@ -355,7 +357,7 @@ void mem_domain_ztest_6(void *p1, void *p2, void *p3)
 			MEM_DOMAIN_STACK_SIZE,
 			mem_domain_test_6_1,
 			NULL, NULL, NULL,
-			10, K_USER | K_INHERIT_PERMS, K_NO_WAIT);
+			K_PRIO_COOP(1), K_USER | K_INHERIT_PERMS, K_NO_WAIT);
 
 
 	k_sem_take(&sync_sem, SYNC_SEM_TIMEOUT);
@@ -363,12 +365,12 @@ void mem_domain_ztest_6(void *p1, void *p2, void *p3)
 	k_mem_domain_remove_partition(&mem_domain_tc3_mem_domain,
 				      &mem_domain_tc3_part2_struct);
 
-	k_thread_create(&mem_domain_6_tid,
-			mem_domain_6_stack,
+	k_thread_create(&mem_domain_6_tid2,
+			mem_domain_6_stack2,
 			MEM_DOMAIN_STACK_SIZE,
 			mem_domain_test_6_2,
 			NULL, NULL, NULL,
-			10, K_USER | K_INHERIT_PERMS, K_NO_WAIT);
+			K_PRIO_COOP(1), K_USER | K_INHERIT_PERMS, K_NO_WAIT);
 
 	k_sem_take(&sync_sem, SYNC_SEM_TIMEOUT);
 

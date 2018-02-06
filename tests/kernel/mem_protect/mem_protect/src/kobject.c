@@ -127,7 +127,7 @@ void kobject_test_4(void *p1, void *p2, void *p3)
 			KOBJECT_STACK_SIZE,
 			kobject_user_test4,
 			(void *)1, NULL, NULL,
-			0, K_INHERIT_PERMS|K_USER, K_NO_WAIT);
+			K_PRIO_COOP(1), K_INHERIT_PERMS|K_USER, K_NO_WAIT);
 
 
 	k_sem_take(&sync_sem, SYNC_SEM_TIMEOUT);
@@ -138,7 +138,7 @@ void kobject_test_4(void *p1, void *p2, void *p3)
 			KOBJECT_STACK_SIZE,
 			kobject_user_test4,
 			(void *)2, NULL, NULL,
-			0, K_INHERIT_PERMS|K_USER, K_NO_WAIT);
+			K_PRIO_COOP(1), K_INHERIT_PERMS|K_USER, K_NO_WAIT);
 
 	k_thread_abort(k_current_get());
 
@@ -177,7 +177,7 @@ void kobject_test_5(void *p1, void *p2, void *p3)
 			KOBJECT_STACK_SIZE,
 			kobject_user_1_test5,
 			NULL, NULL, NULL,
-			0, K_INHERIT_PERMS | K_USER, K_NO_WAIT);
+			K_PRIO_COOP(1), K_INHERIT_PERMS | K_USER, K_NO_WAIT);
 
 
 	k_sem_take(&sync_sem, SYNC_SEM_TIMEOUT);
@@ -187,7 +187,7 @@ void kobject_test_5(void *p1, void *p2, void *p3)
 			KOBJECT_STACK_SIZE,
 			kobject_user_2_test5,
 			NULL, NULL, NULL,
-			0, K_INHERIT_PERMS|K_USER, K_NO_WAIT);
+			K_PRIO_COOP(1), K_INHERIT_PERMS|K_USER, K_NO_WAIT);
 
 	k_sem_take(&sync_sem, SYNC_SEM_TIMEOUT);
 
@@ -220,7 +220,7 @@ void kobject_test_6(void *p1, void *p2, void *p3)
 			KOBJECT_STACK_SIZE,
 			kobject_user_test6,
 			NULL, NULL, NULL,
-			0, K_INHERIT_PERMS|K_USER, K_NO_WAIT);
+			K_PRIO_COOP(1), K_INHERIT_PERMS|K_USER, K_NO_WAIT);
 
 
 	k_sem_take(&sync_sem, SYNC_SEM_TIMEOUT);
@@ -253,7 +253,7 @@ void kobject_test_7(void *p1, void *p2, void *p3)
 			KOBJECT_STACK_SIZE,
 			kobject_user_test7,
 			NULL, NULL, NULL,
-			0, K_INHERIT_PERMS|K_USER, K_NO_WAIT);
+			K_PRIO_COOP(1), K_INHERIT_PERMS|K_USER, K_NO_WAIT);
 
 	k_sem_take(&sync_sem, SYNC_SEM_TIMEOUT);
 
@@ -288,7 +288,7 @@ void kobject_test_8(void *p1, void *p2, void *p3)
 			KOBJECT_STACK_SIZE,
 			kobject_user_1_test8,
 			NULL, NULL, NULL,
-			0, K_USER, K_NO_WAIT);
+			K_PRIO_COOP(1), K_USER, K_NO_WAIT);
 
 
 	k_sem_take(&sync_sem, SYNC_SEM_TIMEOUT);
@@ -298,7 +298,7 @@ void kobject_test_8(void *p1, void *p2, void *p3)
 			KOBJECT_STACK_SIZE,
 			kobject_user_2_test8,
 			NULL, NULL, NULL,
-			0, K_USER, K_NO_WAIT);
+			K_PRIO_COOP(1), K_USER, K_NO_WAIT);
 
 	k_sem_take(&sync_sem, SYNC_SEM_TIMEOUT);
 
@@ -339,7 +339,7 @@ void kobject_test_9(void *p1, void *p2, void *p3)
 			KOBJECT_STACK_SIZE,
 			kobject_user_1_test9,
 			NULL, NULL, NULL,
-			0, K_INHERIT_PERMS | K_USER, K_NO_WAIT);
+			K_PRIO_COOP(1), K_INHERIT_PERMS | K_USER, K_NO_WAIT);
 
 
 	k_sem_take(&sync_sem, SYNC_SEM_TIMEOUT);
@@ -349,7 +349,7 @@ void kobject_test_9(void *p1, void *p2, void *p3)
 			KOBJECT_STACK_SIZE,
 			kobject_user_2_test9,
 			NULL, NULL, NULL,
-			0, K_USER, K_NO_WAIT);
+			K_PRIO_COOP(1), K_USER, K_NO_WAIT);
 
 
 	k_sem_take(&sync_sem, SYNC_SEM_TIMEOUT);
@@ -422,7 +422,7 @@ void kobject_test_13(void *p1, void *p2, void *p3)
 			KOBJECT_STACK_SIZE,
 			kobject_test_user_13,
 			NULL, NULL, NULL,
-			0, K_INHERIT_PERMS | K_USER, K_NO_WAIT);
+			K_PRIO_COOP(1), K_INHERIT_PERMS | K_USER, K_NO_WAIT);
 
 
 	k_sem_take(&sync_sem, SYNC_SEM_TIMEOUT);
@@ -446,7 +446,7 @@ void kobject_test_user_1_14(void *p1, void *p2, void *p3)
 			KOBJECT_STACK_SIZE,
 			kobject_test_user_2_14,
 			NULL, NULL, NULL,
-			0, K_USER, K_NO_WAIT);
+			K_PRIO_COOP(1), K_USER, K_NO_WAIT);
 
 	zassert_unreachable("_SYSCALL_OBJ implementation failure.");
 
@@ -459,7 +459,7 @@ void kobject_test_14(void *p1, void *p2, void *p3)
 			KOBJECT_STACK_SIZE,
 			kobject_test_user_1_14,
 			NULL, NULL, NULL,
-			0, K_INHERIT_PERMS | K_USER, K_NO_WAIT);
+			K_PRIO_COOP(1), K_INHERIT_PERMS | K_USER, K_NO_WAIT);
 
 
 	k_sem_take(&sync_sem, SYNC_SEM_TIMEOUT);
@@ -482,7 +482,7 @@ void kobject_test_user_1_15(void *p1, void *p2, void *p3)
 			KOBJECT_STACK_SIZE,
 			kobject_test_user_2_15,
 			NULL, NULL, NULL,
-			0, K_USER, K_NO_WAIT);
+			K_PRIO_COOP(1), K_USER, K_NO_WAIT);
 
 	k_thread_abort(k_current_get());
 
@@ -500,7 +500,7 @@ void kobject_test_15(void *p1, void *p2, void *p3)
 			KOBJECT_STACK_SIZE,
 			kobject_test_user_1_15,
 			NULL, NULL, NULL,
-			0, K_INHERIT_PERMS | K_USER, K_NO_WAIT);
+			K_PRIO_COOP(1), K_INHERIT_PERMS | K_USER, K_NO_WAIT);
 
 
 	k_sem_take(&sync_sem, SYNC_SEM_TIMEOUT);
@@ -524,7 +524,7 @@ void kobject_test_user_1_16(void *p1, void *p2, void *p3)
 			KOBJECT_STACK_SIZE,
 			kobject_test_user_2_16,
 			NULL, NULL, NULL,
-			0, K_USER, K_NO_WAIT);
+			K_PRIO_COOP(1), K_USER, K_NO_WAIT);
 
 	k_thread_abort(k_current_get());
 
@@ -544,7 +544,7 @@ void kobject_test_16(void *p1, void *p2, void *p3)
 			KOBJECT_STACK_SIZE,
 			kobject_test_user_1_16,
 			NULL, NULL, NULL,
-			0, K_USER, K_NO_WAIT);
+			K_PRIO_COOP(1), K_USER, K_NO_WAIT);
 
 
 	k_sem_take(&sync_sem, SYNC_SEM_TIMEOUT);
@@ -568,7 +568,7 @@ void kobject_test_user_1_17(void *p1, void *p2, void *p3)
 			-1,
 			kobject_test_user_2_17,
 			NULL, NULL, NULL,
-			0, K_USER, K_NO_WAIT);
+			K_PRIO_COOP(1), K_USER, K_NO_WAIT);
 
 	zassert_unreachable("k_object validation failure in k thread create");
 }
@@ -587,7 +587,7 @@ void kobject_test_17(void *p1, void *p2, void *p3)
 			KOBJECT_STACK_SIZE,
 			kobject_test_user_1_17,
 			NULL, NULL, NULL,
-			0, K_USER, K_NO_WAIT);
+			K_PRIO_COOP(1), K_USER, K_NO_WAIT);
 
 
 	k_sem_take(&sync_sem, SYNC_SEM_TIMEOUT);
@@ -612,7 +612,7 @@ void kobject_test_user_1_18(void *p1, void *p2, void *p3)
 			(KOBJECT_STACK_SIZE * 5),
 			kobject_test_user_2_18,
 			NULL, NULL, NULL,
-			0, K_USER, K_NO_WAIT);
+			K_PRIO_COOP(1), K_USER, K_NO_WAIT);
 
 	zassert_unreachable("k_object validation failure in k thread create");
 }
@@ -631,7 +631,7 @@ void kobject_test_18(void *p1, void *p2, void *p3)
 			KOBJECT_STACK_SIZE,
 			kobject_test_user_1_18,
 			NULL, NULL, NULL,
-			0, K_USER, K_NO_WAIT);
+			K_PRIO_COOP(1), K_USER, K_NO_WAIT);
 
 
 	k_sem_take(&sync_sem, SYNC_SEM_TIMEOUT);
@@ -657,7 +657,7 @@ void kobject_test_user_1_19(void *p1, void *p2, void *p3)
 			KOBJECT_STACK_SIZE,
 			kobject_test_user_2_19,
 			NULL, NULL, NULL,
-			0, 0, K_NO_WAIT);
+			0, K_PRIO_COOP(1), K_NO_WAIT);
 
 	zassert_unreachable("k_object validation failure in k thread create");
 }
@@ -676,7 +676,7 @@ void kobject_test_19(void *p1, void *p2, void *p3)
 			KOBJECT_STACK_SIZE,
 			kobject_test_user_1_19,
 			NULL, NULL, NULL,
-			0, K_USER, K_NO_WAIT);
+			K_PRIO_COOP(1), K_USER, K_NO_WAIT);
 
 
 	k_sem_take(&sync_sem, SYNC_SEM_TIMEOUT);
@@ -702,7 +702,7 @@ void kobject_test_user_1_20(void *p1, void *p2, void *p3)
 			KOBJECT_STACK_SIZE,
 			kobject_test_user_2_20,
 			NULL, NULL, NULL,
-			0, K_USER | K_ESSENTIAL, K_NO_WAIT);
+			K_PRIO_COOP(1), K_USER | K_ESSENTIAL, K_NO_WAIT);
 
 	zassert_unreachable("k_object validation failure in k thread create");
 }
@@ -721,7 +721,7 @@ void kobject_test_20(void *p1, void *p2, void *p3)
 			KOBJECT_STACK_SIZE,
 			kobject_test_user_1_20,
 			NULL, NULL, NULL,
-			0, K_USER, K_NO_WAIT);
+			K_PRIO_COOP(1), K_USER, K_NO_WAIT);
 
 
 	k_sem_take(&sync_sem, SYNC_SEM_TIMEOUT);
@@ -766,7 +766,7 @@ void kobject_test_21(void *p1, void *p2, void *p3)
 			KOBJECT_STACK_SIZE,
 			kobject_test_user_1_21,
 			NULL, NULL, NULL,
-			0, K_USER, K_NO_WAIT);
+			K_PRIO_COOP(1), K_USER, K_NO_WAIT);
 
 
 	k_sem_take(&sync_sem, SYNC_SEM_TIMEOUT);
@@ -812,7 +812,7 @@ void kobject_test_22(void *p1, void *p2, void *p3)
 			KOBJECT_STACK_SIZE,
 			kobject_test_user_1_22,
 			NULL, NULL, NULL,
-			0, K_USER, K_NO_WAIT);
+			K_PRIO_COOP(1), K_USER, K_NO_WAIT);
 
 	k_sem_take(&sync_sem, SYNC_SEM_TIMEOUT);
 

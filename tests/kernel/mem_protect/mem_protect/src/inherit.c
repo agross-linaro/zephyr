@@ -18,7 +18,7 @@ K_TIMER_DEFINE(inherit_timer, dummy_start, dummy_end);
 K_MSGQ_DEFINE(inherit_msgq, MSG_Q_SIZE, MSG_Q_MAX_NUM_MSGS, MSG_Q_ALIGN);
 __kernel struct k_thread test_1_tid;
 
-u8_t MEM_DOMAIN_ALIGNMENT inherit_buf[MEM_REGION_ALLOC]; /* for mem domain */
+__kernel u8_t MEM_DOMAIN_ALIGNMENT inherit_buf[MEM_REGION_ALLOC]; /* for mem domain */
 
 K_MEM_PARTITION_DEFINE(inherit_memory_partition,
 		       inherit_buf,
@@ -35,6 +35,7 @@ struct k_mem_domain inherit_mem_domain;
 void access_test(void)
 {
 	u32_t msg_q_data = 0xA5A5;
+        printk("%s\n", __func__);
 	/* check for all accesses  */
 	k_sem_give(&inherit_sem);
 	k_mutex_lock(&inherit_mutex, K_FOREVER);
@@ -46,12 +47,14 @@ void access_test(void)
 
 void test_thread_1_for_user(void *p1, void *p2, void *p3)
 {
+        printk("%s\n", __func__);
 	access_test();
 	ztest_test_pass();
 }
 
 void test_thread_1_for_SU(void *p1, void *p2, void *p3)
 {
+        printk("%s\n", __func__);
 	valid_fault = false;
 	USERSPACE_BARRIER;
 
