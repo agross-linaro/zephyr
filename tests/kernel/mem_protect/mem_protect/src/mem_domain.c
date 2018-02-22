@@ -19,7 +19,7 @@ mem_domain_6_tid2;
 
 /****************************************************************************/
 /* The mem domains needed.*/
-u8_t MEM_DOMAIN_ALIGNMENT mem_domain_buf[MEM_REGION_ALLOC];
+__kernel u8_t MEM_DOMAIN_ALIGNMENT mem_domain_buf[MEM_REGION_ALLOC];
 
 /* partitions added later in the test cases.*/
 __kernel u8_t MEM_DOMAIN_ALIGNMENT mem_domain_tc3_part1[MEM_REGION_ALLOC];
