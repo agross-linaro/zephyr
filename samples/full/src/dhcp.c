@@ -40,6 +40,9 @@ static void handler(struct net_mgmt_event_callback *cb,
 			continue;
 		}
 
+		/* TODO: IPv6 can get addresses through
+		 * NET_ADDR_AUTOCONF. */
+
 		SYS_LOG_INF("Your address: %s",
 			    net_addr_ntop(AF_INET,
 					  &iface->config.ip.ipv4->unicast[i].address.in_addr,
