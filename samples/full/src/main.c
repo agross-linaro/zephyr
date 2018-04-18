@@ -29,14 +29,52 @@ void resp_callback(struct sntp_ctx *ctx,
 	k_sem_give(&sem);
 }
 
+/*
+ * Things that make sense in a demo app that would need to be more
+ * robust in a real application:
+ *
+ * - DHCP happens once.  If it fails, or we change networks, the
+ *   network will just stop working.
+ *
+ * - DNS lookups are tried once, and that address just used.  IP
+ *   address changes, or DNS resolver problems will just break the
+ *   demo.
+ */
+
 void main(void)
 {
+	char time_ip[NET_IPV6_ADDR_LEN];
+	char mqtt_ip[NET_IPV6_ADDR_LEN];
+	char invalid_ip[NET_IPV6_ADDR_LEN];
+
+	int res;
+
 	SYS_LOG_INF("Main entered");
 	app_dhcpv4_startup();
 	SYS_LOG_INF("Should have DHCPv4 lease at this point.");
-	ipv4_lookup("time.google.com");
-	ipv4_lookup("mqtt.googleapis.com");
-	ipv4_lookup("invalid.example.com");
+
+	res = ipv4_lookup("time.google.com", time_ip, sizeof(time_ip));
+	if (res == 0) {
+		SYS_LOG_INF("time: %s", time_ip);
+	} else {
+		SYS_LOG_INF("Unable to lookup time.google.com, stopping");
+		return;
+	}
+
+	res = ipv4_lookup("mqtt.googleapis.com", mqtt_ip, sizeof(mqtt_ip));
+	if (res == 0) {
+		SYS_LOG_INF("mqtt: %s", time_ip);
+	} else {
+		SYS_LOG_INF("Unable to lookup mqtt.googleapis.com, stopping");
+		return;
+	}
+
+	res = ipv4_lookup("invalid.example.com", invalid_ip, sizeof(invalid_ip));
+	if (res == 0) {
+	} else {
+		SYS_LOG_INF("No invalid response");
+	}
+
 	SYS_LOG_INF("Done with DNS");
 }
 
