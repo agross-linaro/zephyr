@@ -18,6 +18,8 @@
 
 struct k_sem sem;
 
+#define SNTP_PORT 123
+
 void resp_callback(struct sntp_ctx *ctx,
 		   int status,
 		   u64_t epoch_time,
@@ -27,6 +29,36 @@ void resp_callback(struct sntp_ctx *ctx,
 	SYS_LOG_INF("status: %d", status);
 
 	k_sem_give(&sem);
+}
+
+void sntp(const char *ip)
+{
+	struct sntp_ctx ctx;
+	int rc;
+
+	k_sem_init(&sem, 0, 1);
+
+	/* Initialize sntp */
+	rc = sntp_init(&ctx,
+		       ip,
+		       SNTP_PORT,
+		       K_FOREVER);
+	if (rc < 0) {
+		SYS_LOG_ERR("Unable to init sntp context: %d", rc);
+		return;
+	}
+
+	rc = sntp_request(&ctx, K_FOREVER, resp_callback, NULL);
+	if (rc < 0) {
+		SYS_LOG_ERR("Failed to send sntp request: %d", rc);
+		return;
+	}
+
+	/* TODO: This needs to retry. */
+	k_sem_take(&sem, K_FOREVER);
+	sntp_close(&ctx);
+
+	SYS_LOG_INF("done");
 }
 
 /*
@@ -76,36 +108,6 @@ void main(void)
 	}
 
 	SYS_LOG_INF("Done with DNS");
+
+	sntp(time_ip);
 }
-
-#if 0
-void sntp(void)
-{
-	struct sntp_ctx ctx;
-	int rc;
-
-	k_sem_init(&sem, 0, 1);
-
-	/* Initialize sntp */
-	rc = sntp_init(&ctx,
-		       CONFIG_NET_APP_PEER_IPV4_ADDR,
-		       SNTP_PORT,
-		       K_FOREVER);
-	if (rc < 0) {
-		SYS_LOG_ERR("Unable to init sntp context: %d", rc);
-		return;
-	}
-
-	rc = sntp_request(&ctx, K_FOREVER, resp_callback, NULL);
-	if (rc < 0) {
-		SYS_LOG_ERR("Failed to send sntp request: %d", rc);
-		return;
-	}
-
-	/* TODO: This needs to retry. */
-	k_sem_take(&sem, K_FOREVER);
-	sntp_close(&ctx);
-
-	SYS_LOG_INF("done");
-}
-#endif
