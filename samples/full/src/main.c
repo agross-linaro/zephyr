@@ -16,19 +16,66 @@
 
 #include <net/sntp.h>
 
+/* This comes from newlib. */
+#include <time.h>
+#include <inttypes.h>
+
 struct k_sem sem;
 
 #define SNTP_PORT 123
+
+static int64_t time_base;
 
 void resp_callback(struct sntp_ctx *ctx,
 		   int status,
 		   u64_t epoch_time,
 		   void *user_data)
 {
+	int64_t stamp;
+
+	stamp = k_uptime_get();
+	SYS_LOG_INF("stamp: %lld", stamp);
 	SYS_LOG_INF("time: %lld", epoch_time);
+	SYS_LOG_INF("time1k: %lld", epoch_time * MSEC_PER_SEC);
+	time_base = epoch_time * MSEC_PER_SEC - stamp;
+	SYS_LOG_INF("base: %lld", time_base);
 	SYS_LOG_INF("status: %d", status);
 
+	/* Convert time to make sure. */
+	time_t now = epoch_time;
+	struct tm now_tm;
+
+	gmtime_r(&now, &now_tm);
+	SYS_LOG_INF("  year: %d", now_tm.tm_year);
+	SYS_LOG_INF("  mon : %d", now_tm.tm_mon);
+	SYS_LOG_INF("  day : %d", now_tm.tm_mday);
+	SYS_LOG_INF("  hour: %d", now_tm.tm_hour);
+	SYS_LOG_INF("  min : %d", now_tm.tm_min);
+	SYS_LOG_INF("  sec : %d", now_tm.tm_sec);
+
 	k_sem_give(&sem);
+}
+
+/* Zephyr implementation of POSIX `time`.  Has to be called k_time
+ * because time is already taken by newlib.  The clock will be set by
+ * the SNTP client when it receives the time.  We make no attempt to
+ * adjust it smoothly, and it should not be used for measuring
+ * intervals.  Use `k_uptime_get()` directly for that.   Also the
+ * time_t defined by newlib is a signed 32-bit value, and will
+ * overflow in 2037. */
+time_t k_time(time_t *ptr)
+{
+	s64_t stamp;
+	time_t now;
+
+	stamp = k_uptime_get();
+	now = (time_t)((stamp + time_base) / 1000);
+
+	if (ptr) {
+		*ptr = now;
+	}
+
+	return now;
 }
 
 void sntp(const char *ip)
@@ -110,4 +157,31 @@ void main(void)
 	SYS_LOG_INF("Done with DNS");
 
 	sntp(time_ip);
+
+	/* After setting the time, spin periodically, and make sure
+	 * the system clock keeps up reasonably.
+	 */
+	for (int count = 0; count < 10; count++) {
+		time_t now;
+		struct tm tm;
+		uint32_t a, b, c;
+
+		a = k_cycle_get_32();
+		now = k_time(NULL);
+		b = k_cycle_get_32();
+		gmtime_r(&now, &tm);
+		c = k_cycle_get_32();
+
+		SYS_LOG_INF("time %d-%d-%d %d:%d:%d",
+			    tm.tm_year + 1900,
+			    tm.tm_mon + 1,
+			    tm.tm_mday,
+			    tm.tm_hour,
+			    tm.tm_min,
+			    tm.tm_sec);
+		SYS_LOG_INF("time k_time(): %lu", b - a);
+		SYS_LOG_INF("time gmtime_r(): %lu", c - b);
+
+		k_sleep(990);
+	}
 }
