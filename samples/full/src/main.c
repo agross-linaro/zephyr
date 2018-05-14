@@ -20,6 +20,37 @@
 #include <time.h>
 #include <inttypes.h>
 
+#ifdef CONFIG_STDOUT_CONSOLE
+# include <stdio.h>
+# define PRINT printf
+#else
+# define PRINT printk
+#endif
+
+#ifndef CONFIG_MBEDTLS_CFG_FILE
+# include <mbedtls/config.h>
+#else
+# include CONFIG_MBEDTLS_CFG_FILE
+#endif
+
+#ifdef MBEDTLS_PLATFORM_C
+# include <mbedtls/platform.h>
+#else
+# error "platform not defined"
+#endif
+
+#include <mbedtls/net.h>
+#include <mbedtls/ssl.h>
+#include <mbedtls/entropy.h>
+#include <mbedtls/ctr_drbg.h>
+
+#ifdef MBEDTLS_MEMORY_BUFFER_ALLOC_C
+# include <mbedtls/memory_buffer_alloc.h>
+static unsigned char heap[20480];
+#else
+# error "TODO: no memory buffer"
+#endif
+
 struct k_sem sem;
 
 #define SNTP_PORT 123
@@ -109,6 +140,41 @@ void sntp(const char *ip)
 }
 
 /*
+ * TODO: These need to be configurable.
+ */
+#define MBEDTLS_NETWORK_TIMEOUT 30000
+
+/*
+ * A TLS client, using mbed TLS.
+ */
+static void tls_client(char *host, int port)
+{
+	//mbedtls_entropy_context entropy;
+	mbedtls_ctr_drbg_context ctr_drbg;
+	mbedtls_ssl_context ssl;
+	mbedtls_ssl_config conf;
+// 	struct tcp_context ctx;
+//
+// 	ctx.timeout = MBEDTLS_NETWORK_TIMEOUT;
+
+#ifdef MBEDTLS_X509_CRT_PARSE_C
+	mbedtls_x509_crt ca;
+#else
+#	error "Must define MBEDTLS_X509_CRT_PARSE_C"
+#endif
+
+	mbedtls_platform_set_printf(PRINT);
+
+	/*
+	 * 0. Initialize mbed TLS.
+	 */
+	mbedtls_ctr_drbg_init(&ctr_drbg);
+	mbedtls_ssl_init(&ssl);
+	mbedtls_ssl_config_init(&conf);
+	mbedtls_x509_crt_init(&ca);
+}
+
+/*
  * Things that make sense in a demo app that would need to be more
  * robust in a real application:
  *
@@ -161,7 +227,7 @@ void main(void)
 	/* After setting the time, spin periodically, and make sure
 	 * the system clock keeps up reasonably.
 	 */
-	for (int count = 0; count < 10; count++) {
+	for (int count = 0; count < 1; count++) {
 		time_t now;
 		struct tm tm;
 		uint32_t a, b, c;
@@ -184,4 +250,6 @@ void main(void)
 
 		k_sleep(990);
 	}
+
+	tls_client(mqtt_ip, 8883);
 }
