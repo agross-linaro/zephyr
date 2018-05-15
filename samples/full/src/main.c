@@ -51,6 +51,8 @@ static unsigned char heap[20480];
 # error "TODO: no memory buffer"
 #endif
 
+#include "globalsign.inc"
+
 struct k_sem sem;
 
 #define SNTP_PORT 123
@@ -144,12 +146,37 @@ void sntp(const char *ip)
  */
 #define MBEDTLS_NETWORK_TIMEOUT 30000
 
+const char *pers = "mini_client";  // What is this?
+
+static int entropy_source(void *data, unsigned char *output, size_t len,
+			  size_t *olen)
+{
+	u32_t seed;
+
+	// TODO: Don't use sys_rand32_get(), but instead use the
+	// entropy device, and fail if it isn't available.
+
+	ARG_UNUSED(data);
+
+	seed = sys_rand32_get();
+
+	if (len > sizeof(seed)) {
+		len = sizeof(seed);
+	}
+
+	memcpy(output, &seed, len);
+
+	*olen = len;
+
+	return 0;
+}
+
 /*
  * A TLS client, using mbed TLS.
  */
 static void tls_client(char *host, int port)
 {
-	//mbedtls_entropy_context entropy;
+	mbedtls_entropy_context entropy;
 	mbedtls_ctr_drbg_context ctr_drbg;
 	mbedtls_ssl_context ssl;
 	mbedtls_ssl_config conf;
@@ -172,6 +199,62 @@ static void tls_client(char *host, int port)
 	mbedtls_ssl_init(&ssl);
 	mbedtls_ssl_config_init(&conf);
 	mbedtls_x509_crt_init(&ca);
+
+	SYS_LOG_INF("Seeding the random number generator...");
+	mbedtls_entropy_init(&entropy);
+	mbedtls_entropy_add_source(&entropy, entropy_source, NULL,
+				   MBEDTLS_ENTROPY_MAX_GATHER,
+				   MBEDTLS_ENTROPY_SOURCE_STRONG);
+
+	if (mbedtls_ctr_drbg_seed(&ctr_drbg, mbedtls_entropy_func, &entropy,
+				  (const unsigned char *)pers,
+				  strlen(pers)) != 0) {
+		SYS_LOG_ERR("Unable to init drbg");
+		return;
+	}
+
+	SYS_LOG_INF("Setting up the TLS structure");
+	if (mbedtls_ssl_config_defaults(&conf,
+					MBEDTLS_SSL_IS_CLIENT,
+					MBEDTLS_SSL_TRANSPORT_STREAM,
+					MBEDTLS_SSL_PRESET_DEFAULT) != 0) {
+		SYS_LOG_ERR("Unable to setup ssl config");
+		return;
+	}
+
+	mbedtls_ssl_conf_rng(&conf, mbedtls_ctr_drbg_random, &ctr_drbg);
+
+	/* MBEDTLS_MEMORY_BUFFER_ALLOC_C */
+	mbedtls_memory_buffer_alloc_init(heap, sizeof(heap));
+
+	/* Load the intended root cert in. */
+	if (mbedtls_x509_crt_parse_der(&ca, globalsign_certificate,
+				       sizeof(globalsign_certificate)) != 0) {
+		SYS_LOG_ERR("Unable to decode root cert");
+		return;
+	}
+
+	/* And configure tls to require the other side of the
+	 * connection to use a cert signed by this certificate.
+	 * This makes things fragile, as we are tied to a specific
+	 * certificate. */
+	mbedtls_ssl_conf_ca_chain(&conf, &ca, NULL);
+	mbedtls_ssl_conf_authmode(&conf, MBEDTLS_SSL_VERIFY_REQUIRED);
+
+	if (mbedtls_ssl_setup(&ssl, &conf) != 0) {
+		SYS_LOG_ERR("Error running mbedtls_ssl_setup");
+		return;
+	}
+
+	/* Certificate verification requires matching against an
+	 * expected hostname.  Use the one we looked up.
+	 * TODO: Make this only occur once in the code.
+	 */
+	if (mbedtls_ssl_set_hostname(&ssl, "mqtt.googleapis.com") != 0) {
+		SYS_LOG_ERR("Error setting target hostname");
+	}
+
+	SYS_LOG_INF("tls init done");
 }
 
 /*
