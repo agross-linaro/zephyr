@@ -51,6 +51,9 @@ static unsigned char heap[20480];
 # error "TODO: no memory buffer"
 #endif
 
+// Get rid of this.
+#include "tcp.h"
+
 #include "globalsign.inc"
 
 struct k_sem sem;
@@ -180,9 +183,9 @@ static void tls_client(char *host, int port)
 	mbedtls_ctr_drbg_context ctr_drbg;
 	mbedtls_ssl_context ssl;
 	mbedtls_ssl_config conf;
-// 	struct tcp_context ctx;
-//
-// 	ctx.timeout = MBEDTLS_NETWORK_TIMEOUT;
+	struct tcp_context ctx;
+
+	ctx.timeout = MBEDTLS_NETWORK_TIMEOUT;
 
 #ifdef MBEDTLS_X509_CRT_PARSE_C
 	mbedtls_x509_crt ca;
@@ -250,11 +253,25 @@ static void tls_client(char *host, int port)
 	 * expected hostname.  Use the one we looked up.
 	 * TODO: Make this only occur once in the code.
 	 */
-	if (mbedtls_ssl_set_hostname(&ssl, "mqtt.googleapis.com") != 0) {
+	if (mbedtls_ssl_set_hostname(&ssl, host) != 0) {
 		SYS_LOG_ERR("Error setting target hostname");
 	}
 
 	SYS_LOG_INF("tls init done");
+
+	SYS_LOG_INF("Connecting to tcp %s...", host);
+	if (tcp_init(&ctx, host, port) != 0) {
+		SYS_LOG_ERR("Fail to connect");
+		return;
+	}
+
+	mbedtls_ssl_set_bio(&ssl, &ctx, tcp_tx, tcp_rx, NULL);
+
+	SYS_LOG_INF("Performing TLS handshake");
+	if (mbedtls_ssl_handshake(&ssl) != 0) {
+		SYS_LOG_ERR("TLS handshake failed");
+		return;
+	}
 }
 
 /*
