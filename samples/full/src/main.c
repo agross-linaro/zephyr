@@ -15,6 +15,7 @@
 #include "dns.h"
 
 #include <net/sntp.h>
+#include <net/socket.h>
 
 /* This comes from newlib. */
 #include <time.h>
@@ -50,9 +51,6 @@ static unsigned char heap[20480];
 #else
 # error "TODO: no memory buffer"
 #endif
-
-// Get rid of this.
-#include "tcp.h"
 
 #include "globalsign.inc"
 
@@ -177,15 +175,14 @@ static int entropy_source(void *data, unsigned char *output, size_t len,
 /*
  * A TLS client, using mbed TLS.
  */
-static void tls_client(char *host, int port)
+static void tls_client(const char *hostname, struct zsock_addrinfo *host, int port)
 {
 	mbedtls_entropy_context entropy;
 	mbedtls_ctr_drbg_context ctr_drbg;
 	mbedtls_ssl_context ssl;
 	mbedtls_ssl_config conf;
-	struct tcp_context ctx;
-
-	ctx.timeout = MBEDTLS_NETWORK_TIMEOUT;
+	int sock;
+	int res;
 
 #ifdef MBEDTLS_X509_CRT_PARSE_C
 	mbedtls_x509_crt ca;
@@ -253,12 +250,28 @@ static void tls_client(char *host, int port)
 	 * expected hostname.  Use the one we looked up.
 	 * TODO: Make this only occur once in the code.
 	 */
-	if (mbedtls_ssl_set_hostname(&ssl, host) != 0) {
+	if (mbedtls_ssl_set_hostname(&ssl, hostname) != 0) {
 		SYS_LOG_ERR("Error setting target hostname");
 	}
 
 	SYS_LOG_INF("tls init done");
 
+	SYS_LOG_INF("Connecting to tcp '%s'", hostname);
+	SYS_LOG_INF("Creating socket");
+	sock = zsock_socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+	if (sock == -1) {
+		SYS_LOG_ERR("Failed to create socket");
+		return;
+	}
+
+	SYS_LOG_INF("connecting...");
+	res = zsock_connect(sock, host->ai_addr, host->ai_addrlen);
+	if (res == -1) {
+		SYS_LOG_ERR("Failed to connect to socket");
+		return;
+	}
+	SYS_LOG_INF("Connected");
+#if 0
 	SYS_LOG_INF("Connecting to tcp %s...", host);
 	if (tcp_init(&ctx, host, port) != 0) {
 		SYS_LOG_ERR("Fail to connect");
@@ -271,6 +284,28 @@ static void tls_client(char *host, int port)
 	if (mbedtls_ssl_handshake(&ssl) != 0) {
 		SYS_LOG_ERR("TLS handshake failed");
 		return;
+	}
+#endif
+
+	SYS_LOG_ERR("Done with TCP client");
+}
+
+static void show_addrinfo(struct zsock_addrinfo *addr)
+{
+top:
+	printf("  flags   : %d\n", addr->ai_flags);
+	printf("  family  : %d\n", addr->ai_family);
+	printf("  socktype: %d\n", addr->ai_socktype);
+	printf("  protocol: %d\n", addr->ai_protocol);
+	printf("  addrlen : %d\n", addr->ai_addrlen);
+
+	/* Assume two words. */
+	printf("   addr[0]: 0x%lx\n", ((uint32_t *)addr->ai_addr)[0]);
+	printf("   addr[1]: 0x%lx\n", ((uint32_t *)addr->ai_addr)[1]);
+
+	if (addr->ai_next != 0) {
+		addr = addr->ai_next;
+		goto top;
 	}
 }
 
@@ -289,13 +324,13 @@ static void tls_client(char *host, int port)
 void main(void)
 {
 	char time_ip[NET_IPV6_ADDR_LEN];
-	char mqtt_ip[NET_IPV6_ADDR_LEN];
-	char invalid_ip[NET_IPV6_ADDR_LEN];
-
+	static struct zsock_addrinfo hints;
+	struct zsock_addrinfo *haddr;
 	int res;
 
 	SYS_LOG_INF("Main entered");
 	app_dhcpv4_startup();
+	// net_app_init();
 	SYS_LOG_INF("Should have DHCPv4 lease at this point.");
 
 	res = ipv4_lookup("time.google.com", time_ip, sizeof(time_ip));
@@ -306,6 +341,7 @@ void main(void)
 		return;
 	}
 
+#if 0
 	res = ipv4_lookup("mqtt.googleapis.com", mqtt_ip, sizeof(mqtt_ip));
 	if (res == 0) {
 		SYS_LOG_INF("mqtt: %s", time_ip);
@@ -319,15 +355,17 @@ void main(void)
 	} else {
 		SYS_LOG_INF("No invalid response");
 	}
+#endif
 
 	SYS_LOG_INF("Done with DNS");
 
+	/* TODO: Convert sntp to sockets with newer API. */
 	sntp(time_ip);
 
 	/* After setting the time, spin periodically, and make sure
 	 * the system clock keeps up reasonably.
 	 */
-	for (int count = 0; count < 1; count++) {
+	for (int count = 0; count < 0; count++) {
 		time_t now;
 		struct tm tm;
 		uint32_t a, b, c;
@@ -351,5 +389,18 @@ void main(void)
 		k_sleep(990);
 	}
 
-	tls_client(mqtt_ip, 8883);
+	hints.ai_family = AF_INET;
+	hints.ai_socktype = SOCK_STREAM;
+	hints.ai_protocol = 0;
+	res = zsock_getaddrinfo("mqtt.googleapis.com", "8883", &hints, &haddr);
+	printf("getaddrinfo status: %d\n", res);
+
+	if (res != 0) {
+		printf("Unable to get address, exiting\n");
+		return;
+	}
+
+	show_addrinfo(haddr);
+
+	tls_client("mqtt.googleapis.com", haddr, 8883);
 }
