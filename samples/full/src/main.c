@@ -45,9 +45,11 @@
 #include <mbedtls/entropy.h>
 #include <mbedtls/ctr_drbg.h>
 
+#include <mbedtls/debug.h>
+
 #ifdef MBEDTLS_MEMORY_BUFFER_ALLOC_C
 # include <mbedtls/memory_buffer_alloc.h>
-static unsigned char heap[20480];
+static unsigned char heap[65536];
 #else
 # error "TODO: no memory buffer"
 #endif
@@ -59,6 +61,31 @@ struct k_sem sem;
 #define SNTP_PORT 123
 
 static int64_t time_base;
+
+static void my_debug(void *ctx, int level,
+		     const char *file, int line, const char *str)
+{
+	const char *p, *basename;
+	int len;
+
+	ARG_UNUSED(ctx);
+
+	/* Extract basename from file */
+	for (p = basename = file; *p != '\0'; p++) {
+		if (*p == '/' || *p == '\\') {
+			basename = p + 1;
+		}
+
+	}
+
+	/* Avoid printing double newlines */
+	len = strlen(str);
+	if (str[len - 1] == '\n') {
+		((char *)str)[len - 1] = '\0';
+	}
+
+	SYS_LOG_INF("%s:%04d: |%d| %s", basename, line, level, str);
+}
 
 void resp_callback(struct sntp_ctx *ctx,
 		   int status,
@@ -172,6 +199,31 @@ static int entropy_source(void *data, unsigned char *output, size_t len,
 	return 0;
 }
 
+static mbedtls_ssl_context *the_ssl;
+
+static int tcp_tx(void *ctx,
+		  const unsigned char *buf,
+		  size_t len)
+{
+	int sock = *((int *) ctx);
+
+	mbedtls_debug_print_buf(the_ssl, 4, __FILE__, __LINE__, "tcp_tx", buf, len);
+
+	return zsock_send(sock, buf, len, 0);
+}
+
+static int tcp_rx(void *ctx,
+		  unsigned char *buf,
+		  size_t len)
+{
+	int rlen;
+	int sock = *((int *) ctx);
+
+	rlen = zsock_recv(sock, buf, len, 0);
+	mbedtls_debug_print_buf(the_ssl, 4, __FILE__, __LINE__, "tcp_tx", buf, rlen);
+	return rlen;
+}
+
 /*
  * A TLS client, using mbed TLS.
  */
@@ -184,12 +236,15 @@ static void tls_client(const char *hostname, struct zsock_addrinfo *host, int po
 	int sock;
 	int res;
 
+	mbedtls_platform_set_time(k_time);
+
 #ifdef MBEDTLS_X509_CRT_PARSE_C
 	mbedtls_x509_crt ca;
 #else
 #	error "Must define MBEDTLS_X509_CRT_PARSE_C"
 #endif
 
+	the_ssl = &ssl;
 	mbedtls_platform_set_printf(PRINT);
 
 	/*
@@ -222,6 +277,8 @@ static void tls_client(const char *hostname, struct zsock_addrinfo *host, int po
 		return;
 	}
 
+	mbedtls_ssl_conf_dbg(&conf, my_debug, NULL);
+
 	mbedtls_ssl_conf_rng(&conf, mbedtls_ctr_drbg_random, &ctr_drbg);
 
 	/* MBEDTLS_MEMORY_BUFFER_ALLOC_C */
@@ -241,6 +298,7 @@ static void tls_client(const char *hostname, struct zsock_addrinfo *host, int po
 	mbedtls_ssl_conf_ca_chain(&conf, &ca, NULL);
 	mbedtls_ssl_conf_authmode(&conf, MBEDTLS_SSL_VERIFY_REQUIRED);
 
+	// mbedtls_debug_set_threshold(2);
 	if (mbedtls_ssl_setup(&ssl, &conf) != 0) {
 		SYS_LOG_ERR("Error running mbedtls_ssl_setup");
 		return;
@@ -271,21 +329,16 @@ static void tls_client(const char *hostname, struct zsock_addrinfo *host, int po
 		return;
 	}
 	SYS_LOG_INF("Connected");
-#if 0
-	SYS_LOG_INF("Connecting to tcp %s...", host);
-	if (tcp_init(&ctx, host, port) != 0) {
-		SYS_LOG_ERR("Fail to connect");
-		return;
-	}
 
-	mbedtls_ssl_set_bio(&ssl, &ctx, tcp_tx, tcp_rx, NULL);
+	mbedtls_ssl_set_bio(&ssl, &sock, tcp_tx, tcp_rx, NULL);
 
 	SYS_LOG_INF("Performing TLS handshake");
+	// mbedtls_debug_set_threshold(4);
+
 	if (mbedtls_ssl_handshake(&ssl) != 0) {
 		SYS_LOG_ERR("TLS handshake failed");
 		return;
 	}
-#endif
 
 	SYS_LOG_ERR("Done with TCP client");
 }
@@ -329,7 +382,7 @@ void main(void)
 	int res;
 
 	SYS_LOG_INF("Main entered");
-	app_dhcpv4_startup();
+	// app_dhcpv4_startup();
 	// net_app_init();
 	SYS_LOG_INF("Should have DHCPv4 lease at this point.");
 
