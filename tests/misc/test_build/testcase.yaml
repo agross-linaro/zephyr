@@ -25,4 +25,4 @@ tests:
     build_only: true
     tags: apps
     extra_configs:
-      - CONFIG_KERNEL_BIN_NAME="A_kconfig_value_with_a_utf8_char_in_it_Bøe_"
+      - CONFIG_KERNEL_BIN_NAME="A_kconfig_value_with_a_utf8_char_in_it_Boe_"
