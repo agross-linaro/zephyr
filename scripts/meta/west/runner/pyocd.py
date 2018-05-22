@@ -141,7 +141,7 @@ class PyOcdBinaryRunner(ZephyrBinaryRunner):
                           self.tui_args +
                           [self.elf_name] +
                           ['-ex', 'target remote :{}'.format(self.gdb_port),
-                           '-ex', 'load',
+                           # '-ex', 'load',
                            '-ex', 'monitor reset halt'])
             self.print_gdbserver_message()
             self.run_server_and_client(server_cmd, client_cmd)
