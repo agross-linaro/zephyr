@@ -208,8 +208,8 @@ if(CONFIG_READABLE_ASM)
 endif()
 
 zephyr_cc_option(-fno-asynchronous-unwind-tables)
-zephyr_cc_option(-fno-pie)
-zephyr_cc_option(-fno-pic)
+# zephyr_cc_option(-fno-pie)
+# zephyr_cc_option(-fno-pic)
 zephyr_cc_option(-fno-strict-overflow)
 zephyr_cc_option(-Wno-pointer-sign)
 
