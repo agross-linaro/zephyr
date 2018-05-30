@@ -1,0 +1,65 @@
+/*
+ * Copyright (c) 2018 Linaro Limited
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/ {
+	flash0: flash@10200000 {
+		/* QSPI flash */
+		reg = <0x10200000 0x800000>;
+	};
+
+	sram0: memory@30000000 {
+		compatible = "mmio-sram";
+		reg = <0x30000000 0x20000>;
+	};
+
+	soc {
+		timer0: timer@50000000 {
+			compatible = "arm,cmsdk-timer";
+			reg = <0x50000000 0x1000>;
+			interrupts = <3 3>;
+		};
+
+		timer1: timer@50001000 {
+			compatible = "arm,cmsdk-timer";
+			reg = <0x50001000 0x1000>;
+			interrupts = <4 3>;
+		};
+
+		dtimer0: dtimer@50002000 {
+			compatible = "arm,cmsdk-dtimer";
+			reg = <0x50002000 0x1000>;
+			interrupts = <5 3>;
+		};
+
+		wdog0: wdog@50081000 {
+			compatible = "arm,cmsdk-watchdog";
+			reg = <0x50081000 0x1000>;
+		};
+
+		uart0: uart@50101000 {
+			compatible = "arm,pl011";
+			reg = <0x50101000 0x1000>;
+			interrupts = <39 3 40 3 41 3 43 3>;
+			interrupt-names = "rx", "tx", "rxtim", "err";
+			current-speed = <115200>;
+			label = "UART_0";
+		};
+
+		uart1: uart@50102000 {
+			compatible = "arm,pl011";
+			reg = <0x50102000 0x1000>;
+			interrupts = <45 3 46 3 47 3 49 3>;
+			interrupt-names = "rx", "tx", "rxtim", "err";
+			current-speed = <115200>;
+			label = "UART_1";
+		};
+
+		scc@5010c000 {
+			compatible = "arm,scc";
+			reg = <0x5010c000 0x1000>;
+		};
+	};
+};
