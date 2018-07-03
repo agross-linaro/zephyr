@@ -7,7 +7,7 @@
 if BOARD_MPS2_AN521
 
 config BOARD
-	default mps2_an521
+	default "mps2_an521"
 
 if GPIO
 

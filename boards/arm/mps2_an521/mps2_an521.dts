@@ -26,7 +26,7 @@
 	};
 
 	flash0: flash {
-		reg = <0x00100000 0x1ffc00>;
+		reg = <0x10200000 0x800000>;
 	};
 
 	soc {
@@ -77,49 +77,22 @@
 			reg = <0x40081000 0x1000>;
 		};
 
-		uart0: uart@40200000 {
+		uart0: uart@50101000 {
 			compatible = "arm,cmsdk-uart";
-			reg = <0x40200000 0x1000>;
+			reg = <0x50101000 0x1000>;
 			interrupts = <33 3 32 3>;
 			interrupt-names = "tx", "rx";
 			current-speed = <115200>;
 			label = "UART_0";
 		};
 
-		uart1: uart@40201000 {
+		uart1: uart@50102000 {
 			compatible = "arm,cmsdk-uart";
-			reg = <0x40201000 0x1000>;
+			reg = <0x50102000 0x1000>;
 			interrupts = <35 3 34 3>;
 			interrupt-names = "tx", "rx";
 			current-speed = <115200>;
 			label = "UART_1";
-		};
-
-		uart2: uart@40202000 {
-			compatible = "arm,cmsdk-uart";
-			reg = <0x40202000 0x1000>;
-			interrupts = <37 3 36 3>;
-			interrupt-names = "tx", "rx";
-			current-speed = <115200>;
-			label = "UART_2";
-		};
-
-		uart3: uart@40203000 {
-			compatible = "arm,cmsdk-uart";
-			reg = <0x40203000 0x1000>;
-			interrupts = <39 3 38 3>;
-			interrupt-names = "tx", "rx";
-			current-speed = <115200>;
-			label = "UART_3";
-		};
-
-		uart4: uart@40204000 {
-			compatible = "arm,cmsdk-uart";
-			reg = <0x40204000 0x1000>;
-			interrupts = <41 3 40 3>;
-			interrupt-names = "tx", "rx";
-			current-speed = <115200>;
-			label = "UART_4";
 		};
 
 		i2c_touch: i2c@50207000 {
