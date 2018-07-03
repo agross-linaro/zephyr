@@ -6,6 +6,9 @@
 
 if SOC_MPS2_AN521
 
+config BUILD_OUTPUT_HEX
+	default y
+
 config SOC
 	default "mps2_an521"
 
