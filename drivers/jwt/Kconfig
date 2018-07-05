@@ -1,0 +1,9 @@
+# This is a hack.
+
+menuconfig JWT
+	bool
+	prompt "Enable JWT token generation"
+	select MBEDTLS
+	default n
+	help
+	  Enable creation of JWT tokens

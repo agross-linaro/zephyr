@@ -22,13 +22,7 @@
 #include <stdbool.h>
 #include <ztest.h>
 #include <json.h>
-
-#if !defined(CONFIG_MBEDTLS_CFG_FILE)
-#  error "Shouldn't happen"
-#  include <mbedtls/config.h>
-#else
-#  include CONFIG_MBEDTLS_CFG_FILE
-#endif
+#include <jwt.h>
 
 #include <mbedtls/pk.h>
 #include <mbedtls/rsa.h>
@@ -164,7 +158,7 @@ done:
 }
 #endif
 
-void base64_addbyte(struct base64_state *st, uint8_t byte)
+static void base64_addbyte(struct base64_state *st, uint8_t byte)
 {
 	st->wip[st->pending++] = byte;
 	if (st->pending == 3) {
@@ -172,7 +166,7 @@ void base64_addbyte(struct base64_state *st, uint8_t byte)
 	}
 }
 
-int base64_append_bytes(const char *bytes, size_t len,
+static int base64_append_bytes(const char *bytes, size_t len,
 			 void *data)
 {
 	struct base64_state *st = data;
@@ -241,7 +235,7 @@ static void test_json_encode(void)
 	base64_flush(&b64_state);
 	printk("Res = %d\n", res);
 
-	printk("Value: %s\n", buf);
+	printk("Value:\n%s\n", buf);
 
 	// Sign it.
 	mbedtls_pk_context ctx;
@@ -270,7 +264,29 @@ static void test_json_encode(void)
 	base64_append_bytes(sig, sig_len, &b64_state);
 	base64_flush(&b64_state);
 
-	printk("Value: %s\n", buf);
+	printk("Value:\n%s\n", buf);
+}
+
+void test_jwt(void)
+{
+	/* TODO: This length should be computable, based on the length
+	 * of the audience string. */
+	char buf[460];
+	struct jwt_builder build;
+
+	int res = jwt_init_builder(&build, buf, sizeof(buf));
+	zassert_equal(res, 0, "Setting up jwt");
+
+	res = jwt_add_payload(&build, 1530312026, 1530308426, "iot-work-199419");
+	zassert_equal(res, 0, "Adding payload");
+
+	res = jwt_sign(&build, jwt_test_private_der, jwt_test_private_der_len);
+	zassert_equal(res, 0, "Signing payload");
+
+	zassert_equal(build.overflowed, false, "Not overflow");
+
+	printk("JWT:\n%s\n", buf);
+	printk("len: %d\n", build.buf - build.base);
 }
 
 void test_main(void)
@@ -278,7 +294,8 @@ void test_main(void)
 	mbedtls_memory_buffer_alloc_init(heap, sizeof(heap));
 
 	ztest_test_suite(lib_jwt_test,
-			 ztest_unit_test(test_json_encode));
+			 ztest_unit_test(test_json_encode),
+			 ztest_unit_test(test_jwt));
 
 	ztest_run_test_suite(lib_jwt_test);
 }
