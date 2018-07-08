@@ -83,6 +83,12 @@ int jwt_sign(struct jwt_builder *builder,
 	     const char *der_key,
 	     size_t der_key_len);
 
+
+static inline size_t jwt_payload_len(struct jwt_builder *builder)
+{
+	return (builder->buf - builder->base);
+}
+
 /**
  * @}
  */

@@ -4,6 +4,7 @@ menuconfig JWT
 	bool
 	prompt "Enable JWT token generation"
 	select MBEDTLS
+	select JSON_LIBRARY
 	default n
 	help
 	  Enable creation of JWT tokens

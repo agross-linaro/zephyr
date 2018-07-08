@@ -10,9 +10,13 @@
 
 #include <zephyr.h>
 #include <logging/sys_log.h>
+#include <jwt.h>
 
 #include "dhcp.h"
 #include "dns.h"
+#include "mqtt.h"
+
+#include "pdump.h"
 
 #include <net/sntp.h>
 #include <net/socket.h>
@@ -28,6 +32,7 @@
 # define PRINT printk
 #endif
 
+#if 0
 #ifndef CONFIG_MBEDTLS_CFG_FILE
 # include <mbedtls/config.h>
 #else
@@ -39,7 +44,9 @@
 #else
 # error "platform not defined"
 #endif
+#endif
 
+#include <mbedtls/platform.h>
 #include <mbedtls/net.h>
 #include <mbedtls/ssl.h>
 #include <mbedtls/entropy.h>
@@ -199,7 +206,11 @@ static int entropy_source(void *data, unsigned char *output, size_t len,
 	return 0;
 }
 
-static mbedtls_ssl_context *the_ssl;
+static mbedtls_ssl_context the_ssl;
+static mbedtls_ssl_config the_conf;
+static mbedtls_entropy_context entropy;
+static mbedtls_ctr_drbg_context ctr_drbg;
+static int sock;
 
 static int tcp_tx(void *ctx,
 		  const unsigned char *buf,
@@ -207,21 +218,51 @@ static int tcp_tx(void *ctx,
 {
 	int sock = *((int *) ctx);
 
-	mbedtls_debug_print_buf(the_ssl, 4, __FILE__, __LINE__, "tcp_tx", buf, len);
+	/* Ideally, don't try to send more than is allowed.  TLS will
+	 * reassemble on the other end. */
 
-	return zsock_send(sock, buf, len, 0);
+	mbedtls_debug_print_buf(&the_ssl, 4, __FILE__, __LINE__, "tcp_tx", buf, len);
+	printf("SEND: %d to %d\n", len, sock);
+
+	int res = zsock_send(sock, buf, len, ZSOCK_MSG_DONTWAIT);
+	if (res >= 0) {
+		return res;
+	}
+
+	switch errno {
+	case EAGAIN:
+		printf("Waiting for write, res: %d\n", len);
+		return MBEDTLS_ERR_SSL_WANT_WRITE;
+
+	default:
+		return MBEDTLS_ERR_NET_SEND_FAILED;
+	}
 }
 
 static int tcp_rx(void *ctx,
 		  unsigned char *buf,
 		  size_t len)
 {
-	int rlen;
+	int res;
 	int sock = *((int *) ctx);
 
-	rlen = zsock_recv(sock, buf, len, 0);
-	mbedtls_debug_print_buf(the_ssl, 4, __FILE__, __LINE__, "tcp_tx", buf, rlen);
-	return rlen;
+	res = zsock_recv(sock, buf, len, ZSOCK_MSG_DONTWAIT);
+	mbedtls_debug_print_buf(&the_ssl, 4, __FILE__, __LINE__, "tcp_rx", buf, res);
+	if (res >= 0) {
+		printf("RECV: %d from %d\n", res, sock);
+	}
+
+	if (res >= 0) {
+		return res;
+	}
+
+	switch errno {
+	case EAGAIN:
+		return MBEDTLS_ERR_SSL_WANT_READ;
+
+	default:
+		return MBEDTLS_ERR_NET_RECV_FAILED;
+	}
 }
 
 /*
@@ -229,11 +270,6 @@ static int tcp_rx(void *ctx,
  */
 static void tls_client(const char *hostname, struct zsock_addrinfo *host, int port)
 {
-	mbedtls_entropy_context entropy;
-	mbedtls_ctr_drbg_context ctr_drbg;
-	mbedtls_ssl_context ssl;
-	mbedtls_ssl_config conf;
-	int sock;
 	int res;
 
 	mbedtls_platform_set_time(k_time);
@@ -244,15 +280,14 @@ static void tls_client(const char *hostname, struct zsock_addrinfo *host, int po
 #	error "Must define MBEDTLS_X509_CRT_PARSE_C"
 #endif
 
-	the_ssl = &ssl;
 	mbedtls_platform_set_printf(PRINT);
 
 	/*
 	 * 0. Initialize mbed TLS.
 	 */
 	mbedtls_ctr_drbg_init(&ctr_drbg);
-	mbedtls_ssl_init(&ssl);
-	mbedtls_ssl_config_init(&conf);
+	mbedtls_ssl_init(&the_ssl);
+	mbedtls_ssl_config_init(&the_conf);
 	mbedtls_x509_crt_init(&ca);
 
 	SYS_LOG_INF("Seeding the random number generator...");
@@ -269,7 +304,7 @@ static void tls_client(const char *hostname, struct zsock_addrinfo *host, int po
 	}
 
 	SYS_LOG_INF("Setting up the TLS structure");
-	if (mbedtls_ssl_config_defaults(&conf,
+	if (mbedtls_ssl_config_defaults(&the_conf,
 					MBEDTLS_SSL_IS_CLIENT,
 					MBEDTLS_SSL_TRANSPORT_STREAM,
 					MBEDTLS_SSL_PRESET_DEFAULT) != 0) {
@@ -277,9 +312,9 @@ static void tls_client(const char *hostname, struct zsock_addrinfo *host, int po
 		return;
 	}
 
-	mbedtls_ssl_conf_dbg(&conf, my_debug, NULL);
+	mbedtls_ssl_conf_dbg(&the_conf, my_debug, NULL);
 
-	mbedtls_ssl_conf_rng(&conf, mbedtls_ctr_drbg_random, &ctr_drbg);
+	mbedtls_ssl_conf_rng(&the_conf, mbedtls_ctr_drbg_random, &ctr_drbg);
 
 	/* MBEDTLS_MEMORY_BUFFER_ALLOC_C */
 	mbedtls_memory_buffer_alloc_init(heap, sizeof(heap));
@@ -295,11 +330,11 @@ static void tls_client(const char *hostname, struct zsock_addrinfo *host, int po
 	 * connection to use a cert signed by this certificate.
 	 * This makes things fragile, as we are tied to a specific
 	 * certificate. */
-	mbedtls_ssl_conf_ca_chain(&conf, &ca, NULL);
-	mbedtls_ssl_conf_authmode(&conf, MBEDTLS_SSL_VERIFY_REQUIRED);
+	mbedtls_ssl_conf_ca_chain(&the_conf, &ca, NULL);
+	mbedtls_ssl_conf_authmode(&the_conf, MBEDTLS_SSL_VERIFY_REQUIRED);
 
 	// mbedtls_debug_set_threshold(2);
-	if (mbedtls_ssl_setup(&ssl, &conf) != 0) {
+	if (mbedtls_ssl_setup(&the_ssl, &the_conf) != 0) {
 		SYS_LOG_ERR("Error running mbedtls_ssl_setup");
 		return;
 	}
@@ -308,7 +343,7 @@ static void tls_client(const char *hostname, struct zsock_addrinfo *host, int po
 	 * expected hostname.  Use the one we looked up.
 	 * TODO: Make this only occur once in the code.
 	 */
-	if (mbedtls_ssl_set_hostname(&ssl, hostname) != 0) {
+	if (mbedtls_ssl_set_hostname(&the_ssl, hostname) != 0) {
 		SYS_LOG_ERR("Error setting target hostname");
 	}
 
@@ -330,17 +365,218 @@ static void tls_client(const char *hostname, struct zsock_addrinfo *host, int po
 	}
 	SYS_LOG_INF("Connected");
 
-	mbedtls_ssl_set_bio(&ssl, &sock, tcp_tx, tcp_rx, NULL);
+	mbedtls_ssl_set_bio(&the_ssl, &sock, tcp_tx, tcp_rx, NULL);
 
 	SYS_LOG_INF("Performing TLS handshake");
-	// mbedtls_debug_set_threshold(4);
+	SYS_LOG_INF("State: %d", the_ssl.state);
+	// mbedtls_debug_set_threshold(2);
 
-	if (mbedtls_ssl_handshake(&ssl) != 0) {
-		SYS_LOG_ERR("TLS handshake failed");
+	res = mbedtls_ssl_handshake(&the_ssl);
+	while (1) {
+		if (res != 0) {
+			if (res != MBEDTLS_ERR_SSL_WANT_READ) {
+				SYS_LOG_ERR("TLS handshake failed");
+				SYS_LOG_ERR("state: %d, result: %x", the_ssl.state, res);
+				return;
+			}
+		} else {
+			if (the_ssl.state == MBEDTLS_SSL_HANDSHAKE_OVER) {
+				break;
+			} else {
+				SYS_LOG_ERR("Shouldn't really get here");
+				return;
+			}
+		}
+
+		/* We need to wait for data on the incoming socket,
+		 * and keep trying. */
+		struct zsock_pollfd fds[1] = {
+			[0] = {
+				.fd = sock,
+				.events = ZSOCK_POLLIN,
+				.revents = 0,
+			},
+		};
+
+		res = zsock_poll(fds, 1, 250);
+		if (res < 0) {
+			SYS_LOG_ERR("Socket poll error: %d\n", errno);
+			return;
+		}
+		if (res > 1) {
+			SYS_LOG_ERR("Weird return from poll: %d\n", res);
+			return;
+		}
+
+		SYS_LOG_ERR("Waited, try next step");
+		res = mbedtls_ssl_handshake(&the_ssl);
+		SYS_LOG_ERR("Step returned: %d (state=%d)", res, the_ssl.state);
+	}
+
+	SYS_LOG_INF("State: %d", the_ssl.state);
+
+	SYS_LOG_ERR("Done with TCP client startup");
+}
+
+static const char client_id[] = "projects/iot-work-199419/locations/us-central1/"
+	"registries/my-registry/devices/zepfull";
+#define AUDIENCE "iot-work-199419"
+
+static u8_t send_buf[1024];
+static u8_t recv_buf[1024];
+static u8_t token[512];
+
+extern unsigned char zepfull_private_der[];
+extern unsigned int zepfull_private_der_len;
+
+static void mqtt_startup(void)
+{
+	struct mqtt_connect_msg conmsg;
+	struct jwt_builder jb;
+
+	time_t now = k_time(NULL);
+
+	int res = jwt_init_builder(&jb, token, sizeof(token));
+	if (res != 0) {
+		printk("Error with JWT token\n");
 		return;
 	}
 
-	SYS_LOG_ERR("Done with TCP client");
+	res = jwt_add_payload(&jb, now + 60 * 60, now,
+			      AUDIENCE);
+	if (res != 0) {
+		printk("Error with JWT token\n");
+		return;
+	}
+
+	res = jwt_sign(&jb, zepfull_private_der, zepfull_private_der_len);
+	if (res != 0) {
+		printk("Error with JWT token\n");
+		return;
+	}
+
+	memset(&conmsg, 0, sizeof(conmsg));
+
+	conmsg.clean_session = 1;
+	conmsg.client_id = (char *)client_id;  /* Discard const */
+	conmsg.client_id_len = strlen(client_id);
+	conmsg.keep_alive = 60 * 60; /* One hour */
+	conmsg.password = token;
+	conmsg.password_len = jwt_payload_len(&jb);
+
+	printk("len1 = %d, len2 = %d\n", conmsg.password_len,
+	       strlen(token));
+
+	u16_t send_len = 0;
+	res = mqtt_pack_connect(send_buf, &send_len, sizeof(send_buf),
+				    &conmsg);
+	printk("build packet: res = %d, len=%d\n", res, send_len);
+
+	pdump(send_buf, send_len);
+	res = mbedtls_ssl_write(&the_ssl, send_buf, send_len);
+	printk("Send result: %d\n", res);
+	if (res < 0) {
+		return;
+	}
+	if (res != send_len) {
+		printk("Short send\n");
+	}
+
+	/* Try to receive something. */
+	while (1) {
+		struct zsock_pollfd fds[1] = {
+			[0] = {
+				.fd = sock,
+				.events = ZSOCK_POLLIN,
+				.revents = 0,
+			},
+		};
+
+		res = zsock_poll(fds, 1, 5000);
+		if (res < 0) {
+			printk("Socket poll error: %d\n", errno);
+			return;
+		}
+		if (res == 0) {
+			printk("Moving on\n");
+			break;
+		}
+
+		res = mbedtls_ssl_read(&the_ssl, recv_buf, sizeof(recv_buf));
+		if (res < 0) {
+			// printk("Read error: %d\n", res);
+		} else {
+			printk("Read data: %d bytes:\n", res);
+			pdump(recv_buf, res);
+		}
+	}
+
+#if 1
+	/* Try subscribing to the device state message. */
+	static const char *topics[] = {
+		"/devices/zepfull/config",
+	};
+	static const enum mqtt_qos qoss[] = {
+		MQTT_QoS1,
+	};
+	res = mqtt_pack_subscribe(send_buf, &send_len, sizeof(send_buf),
+				  123, 1, topics, qoss);
+	printk("Subscribe packet: res=%d, len=%d\n", res, send_len);
+#else
+#define TOPIC "/devices/zepfull/state"
+#define MESSAGE "Hereismystate"
+	/* Try sending a state update. */
+	struct mqtt_publish_msg pmsg = {
+		.dup = 0,
+		.qos = MQTT_QoS1,
+		.retain = 1,
+		.pkt_id = 0xfd12,
+		.topic = TOPIC,
+		.topic_len = strlen(TOPIC),
+		.msg = MESSAGE,
+		.msg_len = strlen(MESSAGE),
+	};
+	res = mqtt_pack_publish(send_buf, &send_len, sizeof(send_buf),
+				&pmsg);
+	printk("Publish packet: res=%d, len=%d\n", res, send_len);
+#endif
+	pdump(send_buf, send_len);
+	res = mbedtls_ssl_write(&the_ssl, send_buf, send_len);
+	printk("Send result: %d\n", res);
+	if (res < 0) {
+		return;
+	}
+	if (res != send_len) {
+		printk("Short send\n");
+	}
+
+	/* Try to receive something. */
+	while (1) {
+		struct zsock_pollfd fds[1] = {
+			[0] = {
+				.fd = sock,
+				.events = ZSOCK_POLLIN,
+				.revents = 0,
+			},
+		};
+
+		res = zsock_poll(fds, 1, 5000);
+		if (res < 0) {
+			printk("Socket poll error: %d\n", errno);
+			return;
+		}
+		if (res == 0) {
+			printk(".");
+		}
+
+		res = mbedtls_ssl_read(&the_ssl, recv_buf, sizeof(recv_buf));
+		if (res < 0) {
+			// printk("Read error: %d\n", res);
+		} else {
+			printk("Read data: %d bytes:\n", res);
+			pdump(recv_buf, res);
+		}
+	}
 }
 
 static void show_addrinfo(struct zsock_addrinfo *addr)
@@ -456,4 +692,5 @@ void main(void)
 	show_addrinfo(haddr);
 
 	tls_client("mqtt.googleapis.com", haddr, 8883);
+	mqtt_startup();
 }

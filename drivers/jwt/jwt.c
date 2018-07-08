@@ -6,6 +6,7 @@
 
 #include <string.h>
 #include <zephyr/types.h>
+#include <errno.h>
 
 #include <jwt.h>
 #include <json.h>
@@ -214,7 +215,7 @@ int jwt_sign(struct jwt_builder *builder,
 	base64_append_bytes(sig, sig_len, builder);
 	base64_flush(builder);
 
-	return 0;
+	return builder->overflowed ? -ENOMEM : 0;
 }
 
 int jwt_init_builder(struct jwt_builder *builder,
