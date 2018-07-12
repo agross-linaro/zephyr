@@ -1,0 +1,35 @@
+#
+# Copyright (c) 2018, Linaro Lmtd
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+---
+title: Cadence SPI
+id: cadence,spi
+version: 0.1
+
+description: >
+    This binding gives a base representation of the Cadence SPI IP
+
+inherits:
+    !include spi.yaml
+
+properties:
+    compatible:
+      type: string
+      category: required
+      description: compatible strings
+      constraint: "cadence,spi"
+
+    reg:
+      type: array
+      description: mmio register space
+      generation: define
+      category: required
+
+    interrupts:
+      type: array
+      category: required
+      description: required interrupts
+      generation: define
+...

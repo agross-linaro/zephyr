@@ -55,8 +55,21 @@
 #define CLK_BIT_UART1	0
 #endif
 
+#ifdef CONFIG_SPI_0
+#define CLK_BIT_SPI0	_BEETLE_SPI0
+#else
+#define CLK_BIT_SPI0	0
+#endif
+
+#ifdef CONFIG_SPI_1
+#define CLK_BIT_SPI1	_BEETLE_SPI1
+#else
+#define CLK_BIT_SPI1	1
+#endif
+
 #define APB_CLK_BITS (CLK_BIT_TIMER0 | CLK_BIT_TIMER1 \
-		| CLK_BIT_WDOG | CLK_BIT_UART0 | CLK_BIT_UART1)
+		| CLK_BIT_WDOG | CLK_BIT_UART0 | CLK_BIT_UART1 | \
+		CLK_BIT_SPI0 | CLK_BIT_SPI1)
 
 /**
  * @brief Setup various clock on SoC in active state.

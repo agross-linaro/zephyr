@@ -1,0 +1,11 @@
+# Kconfig - Cadence SPI
+#
+# Copyright (c) 2018 Linaro Lmtd
+# SPDX-License-Identifier: Apache-2.0
+
+menuconfig SPI_CADENCE
+	bool "Cadence SPI Driver"
+	select HAS_DTS_SPI
+	default y
+	help
+	  Enable support for the Cadence SPI driver.

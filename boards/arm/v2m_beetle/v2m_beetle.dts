@@ -92,6 +92,20 @@
 			reg = <0x40013000 0x1000>;
 			interrupts = <IRQ_PORT3_ALL 3>;
 		};
+
+		spi0: spi@4000c000 {
+			compatible = "cadence,spi";
+			reg = <0x4000c000 0x1000>;
+			interrupts = <11 1>;
+			label = "SPI_0";
+		};
+
+		spi1: spi@4000d000 {
+			compatible = "cadence,spi";
+			reg = <0x4000d000 0x1000>;
+			interrupts = <12 1>;
+			label = "SPI_1";
+		};
 	};
 };
 
