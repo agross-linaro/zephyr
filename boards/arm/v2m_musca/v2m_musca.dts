@@ -2,7 +2,11 @@
 
 #include <arm/armv8-m.dtsi>
 
+#if defined (CONFIG_ARM_NONSECURE_FIRMWARE)
+#include "v2m_musca-nonsecure.dtsi"
+#else
 #include "v2m_musca-secure.dtsi"
+#endif
 
 / {
 	compatible = "arm,v2m-musca";
