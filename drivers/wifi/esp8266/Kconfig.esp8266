@@ -1,0 +1,39 @@
+menuconfig WIFI_ESP8266
+	bool "ESP8266 driver support"
+	default y
+	depends on WIFI
+	depends on SERIAL
+	select WIFI_OFFLOAD
+	select NET_L2_WIFI_MGMT
+
+if WIFI_ESP8266
+
+config WIFI_ESP8266_UART_DEVICE
+	string "Serial device used for ESP8266 connection"
+	default "UART_1"
+	help
+	Specify the device name of the serial device to which ESP8266 is
+	connected.
+
+config WIFI_ESP8266_GPIO_DEVICE
+	string "GPIO driver's name to use to drive ESP8266 enable"
+	default "GPIO_1"
+	help
+	  This option is mandatory to set which GPIO controller to use in
+	  order to drive the enable pin
+
+config WIFI_ESP8266_GPIO_ENABLE_PIN
+	int "GPIO PIN to use to drive ESP8266 enable"
+	default 18
+	help
+	  This option is mandatory to set which GPIO pin to use in order
+	  to enable the ESP8266
+
+config WIFI_ESP8266_BAUD_RATE
+	int "Baud rate used for communication to ESP8266"
+	default 9600
+	help
+	This option defines the baud rate used for communication to/from
+	the ESP8266
+
+endif
