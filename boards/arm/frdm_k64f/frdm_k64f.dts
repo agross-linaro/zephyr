@@ -146,6 +146,13 @@
 };
 #endif
 
+#ifdef CONFIG_WIFI_ESP8266
+&uart1 {
+	status = "ok";
+	current-speed = <115200>;
+};
+#endif
+
 &usbd {
 	compatible = "nxp,kinetis-usbd";
 	status = "ok";
