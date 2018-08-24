@@ -22,12 +22,20 @@ config WIFI_ESP8266_GPIO_DEVICE
 	  This option is mandatory to set which GPIO controller to use in
 	  order to drive the enable pin
 
+config WIFI_ESP8266_HAS_ENABLE_PIN
+	bool "ESP8266 device uses an enable pin"
+	default n
+	help
+	  This option defines whether or not the ESP8266 device utilizes a
+	  enable pin
+
+if WIFI_ESP8266_HAS_ENABLE_PIN
 config WIFI_ESP8266_GPIO_ENABLE_PIN
 	int "GPIO PIN to use to drive ESP8266 enable"
-	default 18
 	help
 	  This option is mandatory to set which GPIO pin to use in order
 	  to enable the ESP8266
+endif
 
 config WIFI_ESP8266_BAUD_RATE
 	int "Baud rate used for communication to ESP8266"

@@ -47,6 +47,7 @@ enum request_state {
 	ESP8266_SEND_DATA,
 	ESP8266_GET_IP,
 	ESP8266_ECHO,
+	ESP8266_RESET,
 	ESP8266_GET_MAC,
 };
 
@@ -185,7 +186,7 @@ static int esp8266_connect(struct net_context *context,
 			id, type, data->tmp, port);
 	foo_data.tx_head = 0;
 	foo_data.tx_tail = len;
-	esp8266_set_request_state(ESP8266_ECHO);
+	esp8266_set_request_state(ESP8266_CONNECT);
 
 	uart_irq_rx_enable(foo_data.uart_dev);
 	uart_irq_tx_enable(foo_data.uart_dev);
@@ -220,6 +221,24 @@ static struct net_offload esp8266_offload = {
 	.recv		= NULL,
 	.put		= esp8266_put,
 };
+
+#if !defined(CONFIG_WIFI_ESP8266_HAS_ENABLE_PIN)
+static int esp8266_mgmt_reset(struct device *dev)
+{
+	int len;
+
+	len = sprintf(foo_data.tx_buf, "AT+RST\r\n");
+	foo_data.tx_head = 0;
+	foo_data.tx_tail = len;
+	esp8266_set_request_state(ESP8266_RESET);
+
+	uart_irq_rx_enable(dev);
+	uart_irq_tx_enable(dev);
+	k_sem_take(&transfer_complete, K_FOREVER);
+
+	return 0;
+};
+#endif
 
 static int esp8266_mgmt_echo(struct device *dev)
 {
@@ -643,6 +662,7 @@ static int esp8266_init(struct device *dev)
 		return -EINVAL;
 	}
 
+#if defined(CONFIG_WIFI_ESP8266_HAS_ENABLE_PIN)
 	gpio_pin_configure(drv_data->gpio_dev, CONFIG_WIFI_ESP8266_GPIO_ENABLE_PIN,
 			   GPIO_DIR_OUT);
 
@@ -654,13 +674,21 @@ static int esp8266_init(struct device *dev)
 	/* enable device and check for ready */
 	k_sleep(100);
 	gpio_pin_write(drv_data->gpio_dev, CONFIG_WIFI_ESP8266_GPIO_ENABLE_PIN, 1);
+#else
+	/* send soft reset to sync device */
+	esp8266_mgmt_reset(drv_data->uart_dev);
+
+	esp8266_set_request_state(ESP8266_POWER_UP);
+#endif
 
 	k_sleep(1000);
 	k_sem_take(&transfer_complete, 3000);
 	if (!foo_data.initialized) {
 		SYS_LOG_ERR("esp8266 never became ready\n");
 		/* disable device until we want to configure it*/
+#if defined(CONFIG_WIFI_ESP8266_HAS_ENABLE_PIN)
 		gpio_pin_write(drv_data->gpio_dev, CONFIG_WIFI_ESP8266_GPIO_ENABLE_PIN, 0);
+#endif
 		return -EINVAL;
 	}
 
