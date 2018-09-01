@@ -39,6 +39,17 @@ static struct wifi_scan_result scan_result[10];
 static int scan_count;
 static int tried_parse;
 
+/* net bufs */
+NET_BUF_POOL_DEFINE(esp8266_recv_pool, 30, 128, 0, NULL);
+
+/* RX thread structures */
+K_THREAD_STACK_DEFINE(esp8266_rx_stack, 1024);
+
+K_SEM_DEFINE(uart_rx_sem, 0, 1);
+
+struct k_thread esp8266_rx_thread;
+
+
 enum request_state {
 	ESP8266_IDLE = 0,
 	ESP8266_POWER_UP,
@@ -828,6 +839,21 @@ void scan_line(void)
 	rx_last = 0;
 }
 
+/* RX thread */
+static void esp8266_rx(void)
+{
+	struct net_buf *rx_buf = NULL;
+	struct net_buf *frag = NULL;
+	int i;
+	u16_t offset, len;
+
+	while (true) {
+		k_sem_take(&uart_rx_sem, K_FOREVER);
+
+
+	}
+}
+
 static void esp8266_parse_rx(void)
 {
 	int i;
@@ -854,11 +880,6 @@ static void esp8266_parse_rx(void)
 			}
 			foo_data.rx_full = 0;
 			break;
-		case ESP8266_RECEIVE_DATA:
-		case ESP8266_SEND_DATA:
-		case ESP8266_SCAN:
-		case ESP8266_CONNECT:
-		case ESP8266_DISCONNECT:
 		default:
 			for(; foo_data.rx_head != foo_data.rx_tail; i++) {
 				end = foo_data.rx_buf[foo_data.rx_tail];
@@ -937,6 +958,12 @@ static int esp8266_init(struct device *dev)
 			    CONFIG_WIFI_ESP8266_UART_DEVICE);
 		return -EINVAL;
 	}
+
+	/* start RX thread */
+	k_thread_create(&esp8266_rx_thread, esp8266_rx_stack,
+			K_THREAD_STACK_SIZEOF(esp8266_rx_stack),
+			(k_thread_entry_t) esp8266_rx,
+			NULL, NULL, NULL, K_PRIO_COOP(7), 0, K_NO_WAIT);
 
         /* We use system workqueue to deal with things outside isr: */
         k_delayed_work_init(&foo_data.work,
