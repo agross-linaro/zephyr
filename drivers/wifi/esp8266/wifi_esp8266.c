@@ -53,7 +53,7 @@ static u8_t mdm_recv_buf[MDM_MAX_DATA_LENGTH];
 static char rx_buf[512];
 
 /* net bufs */
-NET_BUF_POOL_DEFINE(esp8266_recv_pool, 30, 128, 0, NULL);
+NET_BUF_POOL_DEFINE(esp8266_recv_pool, 60, 128, 0, NULL);
 static struct k_delayed_work reset_work;
 static struct k_work_q esp8266_workq;
 
@@ -95,6 +95,7 @@ struct socket_data {
 	/** semaphore */
 	struct k_sem sock_send_sem;
 	int socket_id;
+	int read_error;
 };
 
 struct esp8266_data {
@@ -175,11 +176,11 @@ static int send_at_cmd(struct socket_data *sock,
 }
 
 static int net_buf_find_next_delimiter(struct net_buf *buf, const u8_t d,
-	size_t index, size_t len)
+	size_t index)
 {
 	struct net_buf *frag = buf;
 	u16_t offset = 0;
-	size_t n = len - index;
+	u16_t pos = 0;
 
 	while (frag && index) {
 		if (frag->len > index) {
@@ -195,7 +196,7 @@ static int net_buf_find_next_delimiter(struct net_buf *buf, const u8_t d,
 		}
 	}
 
-	while(n && *(frag->data + offset) != d) {
+	while(*(frag->data + offset) != d) {
 		if (offset == frag->len) {
 			if (!frag->frags) {
 				return -1;
@@ -205,10 +206,10 @@ static int net_buf_find_next_delimiter(struct net_buf *buf, const u8_t d,
 		} else {
 			offset++;
 		}
-		n--;
+		pos++;
 	}
 
-	return len - n;
+	return index + pos;
 }
 
 static int net_buf_ncmp(struct net_buf *buf, const u8_t *s2, size_t n)
@@ -346,6 +347,10 @@ static void on_cmd_ip_addr_get(struct net_buf **buf, u16_t len)
 static void on_cmd_send_ready(struct net_buf **buf, u16_t len)
 {
 }
+static void on_cmd_conn_closed(struct net_buf **buf, u16_t len)
+{
+}
+
 static void on_cmd_wifi_scan_resp(struct net_buf **buf, u16_t len)
 {
 	int i;
@@ -359,7 +364,7 @@ static void on_cmd_wifi_scan_resp(struct net_buf **buf, u16_t len)
 	delimiters[0] = 1;
 	for (i = 1; i < 6; i++) {
 		delimiters[i] = net_buf_find_next_delimiter(*buf, ',',
-					delimiters[i-1] + 1, len);
+					delimiters[i-1] + 1);
 		if (delimiters[i] == -1) {
 			return;
 		}
@@ -409,9 +414,9 @@ static void on_cmd_ip_addr_resp(struct net_buf **buf, u16_t len)
 	int d[3];
 	int slen;
 
-	d[0] = net_buf_find_next_delimiter(*buf, ':', 0, len);
-	d[1] = net_buf_find_next_delimiter(*buf, '\"', d[0] + 1, len);
-	d[2] = net_buf_find_next_delimiter(*buf, '\"', d[1] + 1, len);
+	d[0] = net_buf_find_next_delimiter(*buf, ':', 0);
+	d[1] = net_buf_find_next_delimiter(*buf, '\"', d[0] + 1);
+	d[2] = net_buf_find_next_delimiter(*buf, '\"', d[1] + 1);
 
 	slen = d[2] - d[1] - 1;
 
@@ -675,10 +680,11 @@ static int esp8266_send(struct net_pkt *pkt,
 	len = sprintf(send_msg, "AT+CIPSEND=%d,%d\r\n", id,
 		      net_buf_frags_len(frag));
 
-	ret = send_at_cmd(NULL, send_msg, MDM_CMD_TIMEOUT);
+	ret = send_at_cmd(NULL, send_msg, MDM_CMD_TIMEOUT * 2);
 	if (ret < 0) {
-		SYS_LOG_ERR("failed to send send\n");
+		printk("failed to send send\n");
 		ret = -EINVAL;
+		goto ret_early;
 	}
 
 	while (frag) {
@@ -696,12 +702,13 @@ static int esp8266_send(struct net_pkt *pkt,
 		ret = -ETIMEDOUT;
 	}
 
-	net_pkt_unref(pkt);
+ret_early:
 	if (cb) {
 		cb(context, ret, token, user_data);
 	}
 
-	return 0;
+	net_pkt_unref(pkt);
+	return ret;
 }
 
 static int esp8266_put(struct net_context *context)
@@ -899,7 +906,7 @@ static void esp8266_read_rx(struct net_buf **buf)
 			/* mdm_receiver buffer is empty */
 			break;
 		}
-		_hexdump(uart_buffer, bytes_read);
+//		_hexdump(uart_buffer, bytes_read);
 
 		/* make sure we have storage */
 		if (!*buf) {
@@ -1063,56 +1070,88 @@ static int net_pkt_setup_ip_data(struct net_pkt *pkt,
 	return hdr_len;
 }
 
-static struct net_buf * esp8266_read_data(struct net_buf *buf)
+static void esp8266_read_data(struct net_buf **buf)
 {
-	struct net_buf *frag = buf;
+	struct net_buf *frag;
+	struct net_buf *inc = *buf;
 	struct socket_data *sock = &foo_data.socket_data[foo_data.data_id];
 	int pos;
+	int bytes_left = foo_data.data_len;
+	int hdr_len;
 
+
+	sock->read_error = 0;
+	sock->rx_pkt = net_pkt_get_rx(sock->context, BUF_ALLOC_TIMEOUT);
 	if (!sock->rx_pkt) {
-		pos = net_buf_frags_len(buf);
-		if (pos > foo_data.data_len) {
-			frag = net_buf_skip(buf, foo_data.data_len);
-			foo_data.data_len = 0;
-		} else {
-			frag = net_buf_skip(buf, pos);
-			foo_data.data_len -= pos;
-		}
-		return frag;
+		sock->read_error = -ENOMEM;
+		printk("Failed to get net pkt\n");
+		goto fail;
 	}
 
-	while (frag && foo_data.data_len) {
-		if (frag->len > foo_data.data_len) {
-			pos = net_pkt_append(sock->rx_pkt, foo_data.data_len,
-				frag->data, BUF_ALLOC_TIMEOUT);
-			if (pos != foo_data.data_len) {
-				SYS_LOG_ERR("unable to add data\n");
+	/* set up packet data */
+	net_pkt_set_context(sock->rx_pkt, sock->context);
+	net_pkt_set_family(sock->rx_pkt, sock->family);
+
+	frag = net_pkt_get_frag(sock->rx_pkt, BUF_ALLOC_TIMEOUT);
+	if (!frag) {
+		printk("Failed to get frag\n");
+		sock->read_error = -ENOMEM;
+		net_pkt_unref(sock->rx_pkt);
+		sock->rx_pkt = NULL;
+		goto fail;
+	}
+
+	net_pkt_frag_add(sock->rx_pkt, frag);
+
+	hdr_len = net_pkt_setup_ip_data(sock->rx_pkt, sock->ip_proto,
+			&sock->src, &sock->dst);
+
+	while (inc && bytes_left) {
+		if (inc->len > bytes_left) {
+			pos = net_pkt_append(sock->rx_pkt, bytes_left,
+				inc->data, BUF_ALLOC_TIMEOUT);
+			if (pos != bytes_left) {
+				printk("unable to add data\n");
+				sock->read_error = -ENOMEM;
 				net_pkt_unref(sock->rx_pkt);
 				sock->rx_pkt = NULL;
 				break;
 			}
-			foo_data.data_len = 0;
-			net_buf_skip(frag, foo_data.data_len);
+			bytes_left = 0;
 		} else {
-			pos = net_pkt_append(sock->rx_pkt, frag->len, frag->data,
+			pos = net_pkt_append(sock->rx_pkt, inc->len, inc->data,
 				BUF_ALLOC_TIMEOUT);
-			if (pos != frag->len) {
-				SYS_LOG_ERR("unable to add data\n");
+			if (pos != inc->len) {
+				printk("unable to add data\n");
+				sock->read_error = -ENOMEM;
 				net_pkt_unref(sock->rx_pkt);
 				sock->rx_pkt = NULL;
 				break;
 			}
-			foo_data.data_len -= frag->len;
-			frag = net_buf_skip(frag, frag->len);
+			bytes_left -= inc->len;
+			inc = inc->frags;
 		}
 	}
 
-	if (foo_data.data_len == 0) {
-		if (sock->rx_pkt) {
-			k_work_submit_to_queue(&esp8266_workq, &sock->recv_cb_work);
-		}
+	if (bytes_left) {
+		printk("WTF bytes ]eft\n");
 	}
-	return frag;
+
+	net_pkt_set_appdatalen(sock->rx_pkt, foo_data.data_len);
+	if (hdr_len > 0) {
+		frag = net_frag_get_pos(sock->rx_pkt, hdr_len, &pos);
+		NET_ASSERT(frag);
+		net_pkt_set_appdata(sock->rx_pkt, frag->data + pos);
+	} else {
+		net_pkt_set_appdata(sock->rx_pkt,
+				    sock->rx_pkt->frags->data);
+	}
+
+fail:
+	k_work_submit_to_queue(&esp8266_workq, &sock->recv_cb_work);
+
+	*buf = net_buf_skip(*buf, foo_data.data_len);
+	foo_data.data_len = 0;
 }
 
 static void esp8266_process_setup_read(struct net_buf **buf, int end)
@@ -1127,9 +1166,9 @@ static void esp8266_process_setup_read(struct net_buf **buf, int end)
 	int len = net_buf_frags_len(*buf);
 	int hdr_len;
 
-	d[0] = net_buf_find_next_delimiter(*buf, ',', 0, end);
-	d[1] = net_buf_find_next_delimiter(*buf, ',', d[0] + 1, end);
-	d[2] = net_buf_find_next_delimiter(*buf, ',', d[1] + 1, end);
+	d[0] = net_buf_find_next_delimiter(*buf, ',', 0);
+	d[1] = net_buf_find_next_delimiter(*buf, ',', d[0] + 1);
+	d[2] = net_buf_find_next_delimiter(*buf, ',', d[1] + 1);
 
 	slen = d[1] - d[0] - 1;
 	net_buf_linearize(temp, 32, *buf, d[0] + 1, slen);
@@ -1142,41 +1181,7 @@ static void esp8266_process_setup_read(struct net_buf **buf, int end)
 	foo_data.data_len = strtoul(temp, NULL, 10);
 	*buf = net_buf_skip(*buf, end + 1);
 
-	printk("MATCH +IPD (len:%u)\n", foo_data.data_len + end + 1);
-
-	sock = &foo_data.socket_data[foo_data.data_id];
-	sock->rx_pkt = net_pkt_get_rx(sock->context, BUF_ALLOC_TIMEOUT);
-	if (!sock->rx_pkt) {
-		printk("Failed to get net pkt\n");
-		return;
-	}
-
-	/* set up packet data */
-	net_pkt_set_context(sock->rx_pkt, sock->context);
-	net_pkt_set_family(sock->rx_pkt, sock->family);
-
-	frag = net_pkt_get_frag(sock->rx_pkt, BUF_ALLOC_TIMEOUT);
-	if (!frag) {
-		printk("Failed to get frag\n");
-		net_pkt_unref(sock->rx_pkt);
-		sock->rx_pkt = NULL;
-		return;
-	}
-
-	net_pkt_frag_add(sock->rx_pkt, frag);
-	net_pkt_set_appdatalen(sock->rx_pkt, foo_data.data_len);
-
-	hdr_len = net_pkt_setup_ip_data(sock->rx_pkt, sock->ip_proto,
-			&sock->src, &sock->dst);
-	if (hdr_len > 0) {
-		frag = net_frag_get_pos(sock->rx_pkt, hdr_len, &pos);
-		NET_ASSERT(frag);
-		net_pkt_set_appdata(sock->rx_pkt, frag->data + pos);
-	} else {
-		net_pkt_set_appdata(sock->rx_pkt,
-				    sock->rx_pkt->frags->data);
-	}
-
+	SYS_LOG_INF("MATCH +IPD (len:%u)\n", foo_data.data_len + end + 1);
 	return;
 }
 
@@ -1191,10 +1196,20 @@ static void sockreadrecv_cb_work(struct k_work *work)
 	pkt = sock->rx_pkt;
 	sock->rx_pkt = NULL;
 	if (sock->recv_cb) {
-		sock->recv_cb(sock->context, pkt, 0, sock->recv_user_data);
+		if (sock->read_error) {
+			if (pkt) {
+				net_pkt_unref(pkt);
+			}
+			sock->recv_cb(sock->context, NULL, sock->read_error, sock->recv_user_data);
+		} else {
+			sock->recv_cb(sock->context, pkt, 0, sock->recv_user_data);
+		}
+#if 1
 	} else {
 		net_pkt_unref(pkt);
 	}
+#endif
+//		net_pkt_unref(pkt);
 }
 
 /* RX thread */
@@ -1212,6 +1227,7 @@ static void esp8266_rx(void)
 		CMD_HANDLER("OK", sockok),
 		CMD_HANDLER("ERROR", sockerror),
 		CMD_HANDLER("FAIL", sockerror),
+		CMD_HANDLER("SEND FAIL", sockerror),
 		CMD_HANDLER("WIFI GOT IP", ip_addr_get),
 		CMD_HANDLER("AT+CWJAP_CUR=", atcmdecho_nosock),
 		CMD_HANDLER("WIFI CONNECTED", wifi_connected_resp),
@@ -1228,6 +1244,8 @@ static void esp8266_rx(void)
 		CMD_HANDLER("AT+CWLAP", atcmdecho_nosock),
 		CMD_HANDLER("+CWLAP:", wifi_scan_resp),
 		CMD_HANDLER("+CWLAP:", wifi_scan_resp),
+		CMD_HANDLER("AT+CIPMUX", atcmdecho_nosock),
+		CMD_HANDLER("AT+CWQAP", atcmdecho_nosock),
 	//	CMD_HANDLER("+IPD", receive),
 		CMD_HANDLER("AT+CIPSEND=", atcmdecho_nosock),
 		CMD_HANDLER("0,CONNECT", atcmdecho_nosock),
@@ -1235,11 +1253,11 @@ static void esp8266_rx(void)
 		CMD_HANDLER("2,CONNECT", atcmdecho_nosock),
 		CMD_HANDLER("3,CONNECT", atcmdecho_nosock),
 		CMD_HANDLER("4,CONNECT", atcmdecho_nosock),
-		CMD_HANDLER("0,CLOSED", atcmdecho_nosock),
-		CMD_HANDLER("1,CLOSED", atcmdecho_nosock),
-		CMD_HANDLER("2,CLOSED", atcmdecho_nosock),
-		CMD_HANDLER("3,CLOSED", atcmdecho_nosock),
-		CMD_HANDLER("4,CLOSED", atcmdecho_nosock),
+		CMD_HANDLER("0,CLOSED", conn_closed),
+		CMD_HANDLER("1,CLOSED", conn_closed),
+		CMD_HANDLER("2,CLOSED", conn_closed),
+		CMD_HANDLER("3,CLOSED", conn_closed),
+		CMD_HANDLER("4,CLOSED", conn_closed),
 	};
 
 	while (true) {
@@ -1250,7 +1268,12 @@ static void esp8266_rx(void)
 		while (rx_buf) {
 
 			if (foo_data.data_len) {
-				rx_buf = esp8266_read_data(rx_buf);
+				if (net_buf_frags_len(rx_buf) >=
+					foo_data.data_len) {
+					esp8266_read_data(&rx_buf);
+				} else {
+					break;
+				}
 			}
 
 			net_buf_skipcrlf(&rx_buf);
@@ -1258,19 +1281,18 @@ static void esp8266_rx(void)
 				break;
 			}
 
-			/* check for incoming data */
+			/* check for incoming IPD data */
 			if (net_buf_ncmp(rx_buf, "+IPD,", 5) == 0) {
 				i = net_buf_find_next_delimiter(rx_buf, ':',
-					0, net_buf_frags_len(rx_buf));
+					0);
 				if (i < 0) {
-					continue;
+					break;
 				}
+
 				esp8266_process_setup_read(&rx_buf, i);
-				rx_buf = esp8266_read_data(rx_buf);
 				if (!rx_buf) {
 					break;
 				}
-				continue;
 			}
 
 			frag = NULL;
@@ -1285,7 +1307,7 @@ static void esp8266_rx(void)
 				if (net_buf_ncmp(rx_buf, handlers[i].cmd,
 						 handlers[i].cmd_len) == 0) {
 					/* found a matching handler */
-					printk("MATCH %s (len:%u)\n",
+					SYS_LOG_INF("MATCH %s (len:%u)\n",
 						    handlers[i].cmd, len);
 
 					/* skip cmd_len */
@@ -1296,14 +1318,6 @@ static void esp8266_rx(void)
 					frag = NULL;
 					len = net_buf_findcrlf(rx_buf,
 							       &frag, &offset);
-
-#if 0
-					if (!frag) {
-						printk("skipping %s\n",
-handlers[i].cmd);
-						break;
-					}
-#endif
 
 					/* call handler */
 					if (handlers[i].func) {
