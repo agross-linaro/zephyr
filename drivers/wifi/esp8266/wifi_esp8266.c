@@ -29,66 +29,48 @@
 #include <net/wifi_mgmt.h>
 #include <net/socket.h>
 #include <net/net_app.h>
+#include <drivers/modem/modem_receiver.h>
+
 
 #define ESP8266_MAX_CONNECTIONS	5
-#define ESP8266_BUF_SIZE	1600
+#define BUF_ALLOC_TIMEOUT K_SECONDS(1)
+#define MDM_MAX_DATA_LENGTH	1500
 
+struct cmd_handler {
+	const char *cmd;
+	u16_t cmd_len;
+	void (*func)(struct net_buf **buf, u16_t len);
+	int skip_cmd;
+};
+
+#define CMD_HANDLER(cmd_, cb_) { \
+	.cmd = cmd_, \
+	.cmd_len = (u16_t)sizeof(cmd_)-1, \
+	.func = on_cmd_ ## cb_ \
+}
+
+static u8_t mdm_recv_buf[MDM_MAX_DATA_LENGTH];
 static char rx_buf[512];
-static size_t rx_last;
-static struct wifi_scan_result scan_result[10];
-static int scan_count;
-static int tried_parse;
 
 /* net bufs */
 NET_BUF_POOL_DEFINE(esp8266_recv_pool, 30, 128, 0, NULL);
+static struct k_delayed_work reset_work;
+static struct k_work_q esp8266_workq;
 
 /* RX thread structures */
-K_THREAD_STACK_DEFINE(esp8266_rx_stack, 1024);
+K_THREAD_STACK_DEFINE(esp8266_rx_stack, 1028);
 
 K_SEM_DEFINE(uart_rx_sem, 0, 1);
+/* RX thread work queue */
+K_THREAD_STACK_DEFINE(esp8266_workq_stack,
+		      1028);
 
 struct k_thread esp8266_rx_thread;
-
-
-enum request_state {
-	ESP8266_IDLE = 0,
-	ESP8266_POWER_UP,
-	ESP8266_SCAN,
-	ESP8266_CONNECT,
-	ESP8266_SOCK_CONNECT,
-	ESP8266_DISCONNECT,
-	ESP8266_LISTEN,
-	ESP8266_SOCK_DISCONNECT,
-	ESP8266_RECEIVE_DATA,
-	ESP8266_SEND_DATA,
-	ESP8266_SEND_READY,
-	ESP8266_GET_IP,
-	ESP8266_ECHO,
-	ESP8266_RESET,
-	ESP8266_GET_MAC,
-};
-
-enum request_result {
-	ESP8266_OK = 0,
-	ESP8266_SEND_OK,
-	ESP8266_ERROR,
-	ESP8266_FAIL,
-	ESP8266_READY,
-	ESP8266_IN_PROGRESS,
-	ESP8266_CONNECTING,
-};
 
 K_SEM_DEFINE(transfer_complete, 0, 1);
 K_SEM_DEFINE(sock_sem, 1, 1);
 K_MUTEX_DEFINE(dev_mutex);
 
-extern char *strtok_r(char *, const char *, char **);
-
-#define EVENT_GOT_IP		BIT(0)
-#define EVENT_CONNECT		BIT(1)
-#define EVENT_DISCONNECT	BIT(2)
-#define EVENT_SOCK_CONNECT	BIT(3)
-#define EVENT_SOCK_DISCONNECT	BIT(4)
 
 struct socket_data {
 	struct net_context	*context;
@@ -98,20 +80,21 @@ struct socket_data {
 	net_tcp_accept_cb_t		accept_cb;
 	net_context_send_cb_t		send_cb;
 	net_context_recv_cb_t		recv_cb;
-	void *recv_cb_data;
+
+	struct k_work recv_cb_work;
+	void *recv_user_data;
 
 	struct sockaddr		src;
 	struct sockaddr		dst;
 	int connected;
-	void			*connect_data;
-	void			*send_data;
-	void			*recv_data;
-	void			*accept_data;
 	struct net_pkt		*rx_pkt;
 	struct net_buf		*pkt_buf;
 	int			ret;
 	struct	k_sem		wait_sem;
 	char tmp[16];
+	/** semaphore */
+	struct k_sem sock_send_sem;
+	int socket_id;
 };
 
 struct esp8266_data {
@@ -119,29 +102,32 @@ struct esp8266_data {
 	struct in_addr ip;
 	struct in_addr gw;
 	struct in_addr netmask;
-	unsigned char mac[6];
+	u8_t mac[6];
+
+	/* modem stuff */
+	struct mdm_receiver_context mdm_ctx;
+	int last_error;
+	int last_socket_id;
+
+	struct k_delayed_work ip_addr_work;
+
+	/* semaphores */
+	struct k_sem response_sem;
+
 
 	/* max sockets */
 	struct socket_data socket_data[ESP8266_MAX_CONNECTIONS];
 	u8_t sock_map;
 
-	/* fifos + accounting info */
-	u8_t rx_buf[ESP8266_BUF_SIZE];	/* circular due to parsing */
-	u8_t tx_buf[ESP8266_BUF_SIZE];
-	u8_t rx_head;
-	u8_t rx_tail;
-	u8_t rx_full;
-	size_t tx_head;
-	size_t tx_tail;
-	int connected;
-	int receiving;
-
-	struct k_delayed_work work;
-	u8_t event;
+	/* wifi scan callbacks */
+	scan_result_cb_t wifi_scan_cb;
 
 	int transaction;
 	int resp;
 	int initialized;
+
+	int data_id;
+	int data_len;
 
 	int debug;
 	/* delayed work requests */
@@ -153,22 +139,369 @@ struct esp8266_data {
 
 static struct esp8266_data foo_data;
 
-void esp8266_set_request_state(int trans)
+#define MDM_CMD_TIMEOUT		K_SECONDS(5)
+
+/* Send an AT command with a series of response handlers */
+static int send_at_cmd(struct socket_data *sock,
+			const u8_t *data, int timeout)
 {
-	k_mutex_lock(&dev_mutex, K_FOREVER);
-	if (foo_data.transaction != ESP8266_IDLE) {
-		printk("collision - %d, %d\n", trans, foo_data.transaction);
+	int ret;
+
+	foo_data.last_error = 0;
+
+	SYS_LOG_DBG("OUT: [%s]", data);
+	mdm_receiver_send(&foo_data.mdm_ctx, data, strlen(data));
+	mdm_receiver_send(&foo_data.mdm_ctx, "\r\n", 2);
+
+	if (timeout == K_NO_WAIT) {
+		return 0;
 	}
-	foo_data.transaction = trans;
-	foo_data.resp = ESP8266_IN_PROGRESS;
-	k_mutex_unlock(&dev_mutex);
+
+	if (!sock) {
+		k_sem_reset(&foo_data.response_sem);
+		ret = k_sem_take(&foo_data.response_sem, timeout);
+	} else {
+		k_sem_reset(&sock->sock_send_sem);
+		ret = k_sem_take(&sock->sock_send_sem, timeout);
+	}
+
+	if (ret == 0) {
+		ret = foo_data.last_error;
+	} else if (ret == -EAGAIN) {
+		ret = -ETIMEDOUT;
+	}
+
+	return ret;
 }
 
-void esp8266_clear_request_state(void)
+static int net_buf_find_next_delimiter(struct net_buf *buf, const u8_t d,
+	size_t index, size_t len)
 {
-	k_mutex_lock(&dev_mutex, K_FOREVER);
-	foo_data.transaction = ESP8266_IDLE;
-	k_mutex_unlock(&dev_mutex);
+	struct net_buf *frag = buf;
+	u16_t offset = 0;
+	size_t n = len - index;
+
+	while (frag && index) {
+		if (frag->len > index) {
+			offset += index;
+			break;
+		} else {
+			index -= frag->len;
+			offset = 0;
+			if (!frag->frags) {
+				return -1;
+			}
+			frag = frag->frags;
+		}
+	}
+
+	while(n && *(frag->data + offset) != d) {
+		if (offset == frag->len) {
+			if (!frag->frags) {
+				return -1;
+			}
+			frag = frag->frags;
+			offset = 0;
+		} else {
+			offset++;
+		}
+		n--;
+	}
+
+	return len - n;
+}
+
+static int net_buf_ncmp(struct net_buf *buf, const u8_t *s2, size_t n)
+{
+	struct net_buf *frag = buf;
+	u16_t offset = 0;
+
+	while ((n > 0) && (*(frag->data + offset) == *s2) && (*s2 != '\0')) {
+		if (offset == frag->len) {
+			if (!frag->frags) {
+				break;
+			}
+			frag = frag->frags;
+			offset = 0;
+		} else {
+			offset++;
+		}
+
+		s2++;
+		n--;
+	}
+
+	return (n == 0) ? 0 : (*(frag->data + offset) - *s2);
+}
+
+
+static inline void _hexdump(const u8_t *packet, size_t length)
+{
+	char output[sizeof("xxxxyyyy xxxxyyyy")];
+	int n = 0, k = 0;
+	u8_t byte;
+
+	while (length--) {
+		if (n % 16 == 0) {
+			printk(" %08X ", n);
+		}
+
+		byte = *packet++;
+
+		printk("%02X ", byte);
+
+		if (byte < 0x20 || byte > 0x7f) {
+			output[k++] = '.';
+		} else {
+			output[k++] = byte;
+		}
+
+		n++;
+		if (n % 8 == 0) {
+			if (n % 16 == 0) {
+				output[k] = '\0';
+				printk(" [%s]\n", output);
+				k = 0;
+			} else {
+				printk(" ");
+			}
+		}
+	}
+
+	if (n % 16) {
+		int i;
+
+		output[k] = '\0';
+
+		for (i = 0; i < (16 - (n % 16)); i++) {
+			printk("   ");
+		}
+
+		if ((n % 16) < 8) {
+			printk(" "); /* one extra delimiter after 8 chars */
+		}
+
+		printk(" [%s]\n", output);
+	}
+}
+
+/* Echo Handler for commands without related sockets */
+static void on_cmd_atcmdecho_nosock(struct net_buf **buf, u16_t len)
+{
+	/* clear last_socket_id */
+	foo_data.last_socket_id = 0;
+}
+
+static void on_cmd_esp8266_ready(struct net_buf **buf, u16_t len)
+{
+	/* clear last_socket_id */
+	foo_data.last_socket_id = 0;
+	k_sem_give(&foo_data.response_sem);
+}
+
+
+static struct socket_data *socket_from_id(int socket_id)
+{
+	int i;
+	struct socket_data *sock = NULL;
+
+	if (socket_id < 1) {
+		return NULL;
+	}
+
+	for (i = 0; i < ESP8266_MAX_CONNECTIONS; i++) {
+		if (foo_data.socket_data[i].socket_id == socket_id) {
+			sock = &foo_data.socket_data[i];
+			break;
+		}
+	}
+
+	return sock;
+}
+
+static void esp8266_ip_addr_work(struct k_work *work)
+{
+	int ret;
+
+	ret = send_at_cmd(NULL, "AT+CIPSTA_CUR?", MDM_CMD_TIMEOUT);
+	if (ret < 0) {
+		SYS_LOG_ERR("failed to get ip address information\n");
+		return;
+	}
+
+	/* update interface addresses */
+	net_if_ipv4_set_gw(foo_data.iface, &foo_data.gw);
+	net_if_ipv4_set_netmask(foo_data.iface,
+			&foo_data.netmask);
+	net_if_ipv4_addr_add(foo_data.iface, &foo_data.ip, NET_ADDR_DHCP,
+		0);
+}
+
+static void on_cmd_ip_addr_get(struct net_buf **buf, u16_t len)
+{
+		k_delayed_work_submit_to_queue(&esp8266_workq,
+			&foo_data.ip_addr_work, K_SECONDS(2));
+}
+
+static void on_cmd_send_ready(struct net_buf **buf, u16_t len)
+{
+}
+static void on_cmd_wifi_scan_resp(struct net_buf **buf, u16_t len)
+{
+	int i;
+	char temp[32];
+	struct wifi_scan_result result;
+	int delimiters[6];
+	int slen;
+
+	/* ecn, ssid, rssi, mac, channel, freq */
+
+	delimiters[0] = 1;
+	for (i = 1; i < 6; i++) {
+		delimiters[i] = net_buf_find_next_delimiter(*buf, ',',
+					delimiters[i-1] + 1, len);
+		if (delimiters[i] == -1) {
+			return;
+		}
+		delimiters[i]++;
+	}
+
+	/* ecn */
+	net_buf_linearize(temp, 1, *buf, delimiters[0],
+			  delimiters[1] - delimiters[0]);
+	if (temp[0] != '0') {
+		result.security = WIFI_SECURITY_TYPE_PSK;
+	} else {
+		result.security = WIFI_SECURITY_TYPE_PSK;
+	}
+
+	/* ssid */
+	slen = delimiters[2] - delimiters[1] - 3;
+	net_buf_linearize(result.ssid, 32, *buf, delimiters[1] + 1,
+			  slen);
+	result.ssid_length = slen;
+
+	/* rssi */
+	slen = delimiters[3] - delimiters[2];
+	net_buf_linearize(temp, 32, *buf, delimiters[2], slen);
+	temp[slen] = '\0';
+	result.rssi = strtol(temp, NULL, 10);
+
+	/* channel */
+	slen = delimiters[5] - delimiters[4];
+	net_buf_linearize(temp, 32, *buf, delimiters[4], slen);
+	temp[slen] = '\0';
+	result.channel = strtol(temp, NULL, 10);
+
+	/* issue callback to report scan results */
+	if (foo_data.wifi_scan_cb) {
+		foo_data.wifi_scan_cb(foo_data.iface, 0, &result);
+	}
+}
+
+static const char nm_label[] = "netmask";
+static const char gw_label[] = "gateway";
+static const char ip_label[] = "ip";
+
+static void on_cmd_ip_addr_resp(struct net_buf **buf, u16_t len)
+{
+	char ip_addr[] = "xxx.xxx.xxx.xxx";
+	int d[3];
+	int slen;
+
+	d[0] = net_buf_find_next_delimiter(*buf, ':', 0, len);
+	d[1] = net_buf_find_next_delimiter(*buf, '\"', d[0] + 1, len);
+	d[2] = net_buf_find_next_delimiter(*buf, '\"', d[1] + 1, len);
+
+	slen = d[2] - d[1] - 1;
+
+	net_buf_linearize(ip_addr, 16, *buf, d[0] + 2, slen);
+	ip_addr[slen] = '\0';
+
+	if (net_buf_ncmp(*buf, nm_label, strlen(nm_label)) == 0) {
+		inet_pton(AF_INET, ip_addr,
+			  &foo_data.netmask);
+	} else if (net_buf_ncmp(*buf, ip_label, strlen(ip_label)) == 0) {
+		inet_pton(AF_INET, ip_addr,
+			  &foo_data.ip);
+	} else if (net_buf_ncmp(*buf, gw_label, strlen(gw_label)) == 0) {
+		inet_pton(AF_INET, ip_addr,
+			  &foo_data.gw);
+	} else {
+		return;
+	}
+}
+
+static void on_cmd_mac_addr_resp(struct net_buf **buf, u16_t len)
+{
+	int i;
+	char octet[] = "xx";
+	for (i = 0; i < 6; i++) {
+		net_buf_pull_u8(*buf);
+		octet[0]= net_buf_pull_u8(*buf);
+		octet[1]= net_buf_pull_u8(*buf);
+		foo_data.mac[i] = strtoul(octet, NULL, 16);
+	}
+
+	net_if_set_link_addr(foo_data.iface, foo_data.mac,
+			     sizeof(foo_data.mac),
+			     NET_LINK_ETHERNET);
+
+	atomic_set_bit(foo_data.iface->if_dev->flags, NET_IF_UP);
+}
+
+static void on_cmd_sock_send_ready(struct net_buf **buf, u16_t len)
+{
+	foo_data.last_error = 0;
+	k_sem_give(&foo_data.response_sem);
+}
+
+static void on_cmd_receive(struct net_buf **buf, u16_t len)
+{
+}
+
+static void on_cmd_sendok(struct net_buf **buf, u16_t len)
+{
+	foo_data.last_error = 0;
+	k_sem_give(&foo_data.response_sem);
+}
+
+/* Handler: OK */
+static void on_cmd_sockok(struct net_buf **buf, u16_t len)
+{
+	struct socket_data *sock = NULL;
+
+	foo_data.last_error = 0;
+	sock = socket_from_id(foo_data.last_socket_id);
+	if (!sock) {
+		k_sem_give(&foo_data.response_sem);
+	} else {
+		k_sem_give(&sock->sock_send_sem);
+	}
+}
+
+/* Handler: ERROR */
+static void on_cmd_sockerror(struct net_buf **buf, u16_t len)
+{
+	struct socket_data *sock = NULL;
+
+	foo_data.last_error = -EIO;
+	sock = socket_from_id(foo_data.last_socket_id);
+	if (!sock) {
+		k_sem_give(&foo_data.response_sem);
+	} else {
+		k_sem_give(&sock->sock_send_sem);
+	}
+}
+
+static void on_cmd_wifi_connected_resp(struct net_buf **buf, u16_t len)
+{
+	wifi_mgmt_raise_connect_result_event(foo_data.iface, 0);
+}
+
+static void on_cmd_wifi_disconnected_resp(struct net_buf **buf, u16_t len)
+{
+	wifi_mgmt_raise_disconnect_result_event(foo_data.iface, 0);
 }
 
 static int esp8266_get(sa_family_t family,
@@ -212,6 +545,7 @@ static int esp8266_connect(struct net_context *context,
 			s32_t timeout,
 			void *user_data)
 {
+	char connect_msg[100];
 	int len;
 	const char *type;
 	s32_t timeout_sec = timeout / MSEC_PER_SEC;
@@ -256,22 +590,14 @@ static int esp8266_connect(struct net_context *context,
 
 	inet_ntop(sock->dst.sa_family, &net_sin(&sock->dst)->sin_addr,
 			     addr_str, sizeof(addr_str));
-	len = sprintf(foo_data.tx_buf, "AT+CIPSTART=%d,\"%s\",\"%s\",%d\r\n",
+	len = sprintf(connect_msg, "AT+CIPSTART=%d,\"%s\",\"%s\",%d",
 			sock - foo_data.socket_data, type, addr_str,
 			net_sin(&sock->dst)->sin_port);
 
-	foo_data.tx_head = 0;
-	foo_data.tx_tail = len;
-	esp8266_set_request_state(ESP8266_SOCK_CONNECT);
-
-	uart_irq_rx_enable(foo_data.uart_dev);
-	uart_irq_tx_enable(foo_data.uart_dev);
-//	k_sem_reset(&transfer_complete);
-	k_sem_take(&transfer_complete, K_FOREVER);
-
-	if (foo_data.resp == ESP8266_OK) {
-		sock->connected = 1;
-		ret = 0;
+	ret = send_at_cmd(NULL, connect_msg, MDM_CMD_TIMEOUT);
+	if (ret < 0) {
+		SYS_LOG_ERR("failed to send connect\n");
+		ret = -EINVAL;
 	}
 
 	if (cb) {
@@ -308,7 +634,6 @@ static int esp8266_bind(struct net_context *context,
 	{
 		return -EPFNOSUPPORT;
 	}
-
 	return 0;
 }
 
@@ -324,6 +649,8 @@ static int esp8266_accept(struct net_context *context,
 {
 	return -EPFNOSUPPORT;
 }
+
+static u8_t send_msg[32];
 
 static int esp8266_send(struct net_pkt *pkt,
 		net_context_send_cb_t cb,
@@ -345,43 +672,34 @@ static int esp8266_send(struct net_pkt *pkt,
 	id = data - foo_data.socket_data;
 
 	frag = pkt->frags;
-	len = sprintf(foo_data.tx_buf, "AT+CIPSEND=%d,%d\r\n", id,
+	len = sprintf(send_msg, "AT+CIPSEND=%d,%d\r\n", id,
 		      net_buf_frags_len(frag));
-	foo_data.tx_head = 0;
-	foo_data.tx_tail = len;
 
-	esp8266_set_request_state(ESP8266_SEND_DATA);
-
-	foo_data.debug=1;
-	uart_irq_rx_enable(foo_data.uart_dev);
-	uart_irq_tx_enable(foo_data.uart_dev);
-	k_sem_take(&transfer_complete, K_FOREVER);
-
-	/* will get a '>', a ERROR, a OK response, or a busy ... */
-
-	if (foo_data.resp == ESP8266_OK) {
-		foo_data.tx_head = 0;
-		foo_data.tx_tail = 0;
-		while (frag) {
-			memcpy(&foo_data.tx_buf[foo_data.tx_tail], frag->data,
-			       frag->len);
-			foo_data.tx_tail += frag->len;
-			frag = frag->frags;
-		}
-
-		uart_irq_rx_enable(foo_data.uart_dev);
-		uart_irq_tx_enable(foo_data.uart_dev);
-
-		k_sem_take(&transfer_complete, K_FOREVER);
-		if (foo_data.resp == ESP8266_SEND_OK) {
-			ret = 0;
-		}
+	ret = send_at_cmd(NULL, send_msg, MDM_CMD_TIMEOUT);
+	if (ret < 0) {
+		SYS_LOG_ERR("failed to send send\n");
+		ret = -EINVAL;
 	}
 
+	while (frag) {
+		mdm_receiver_send(&foo_data.mdm_ctx, frag->data,
+				  frag->len);
+		frag = frag->frags;
+	}
+
+	k_sem_reset(&foo_data.response_sem);
+	ret = k_sem_take(&foo_data.response_sem, MDM_CMD_TIMEOUT);
+
+	if (ret == 0) {
+		ret = foo_data.last_error;
+	} else if (ret == -EAGAIN) {
+		ret = -ETIMEDOUT;
+	}
+
+	net_pkt_unref(pkt);
 	if (cb) {
 		cb(context, ret, token, user_data);
 	}
-	net_pkt_unref(pkt);
 
 	return 0;
 }
@@ -389,6 +707,7 @@ static int esp8266_send(struct net_pkt *pkt,
 static int esp8266_put(struct net_context *context)
 {
 	struct socket_data *data;
+	u8_t msg[20];
 	int len;
 
 	if (!context || !context->offload_context) {
@@ -400,18 +719,16 @@ static int esp8266_put(struct net_context *context)
 	foo_data.sock_map &= ~(1 << id);
 
 	foo_data.socket_data[id].recv_cb = NULL;
-	foo_data.socket_data[id].recv_cb_data = NULL;
+	foo_data.socket_data[id].send_cb = NULL;
+	foo_data.socket_data[id].accept_cb = NULL;
 
 	if (foo_data.socket_data[id].connected) {
-		len = sprintf(foo_data.tx_buf, "AT+CIPCLOSE=%d\r\n", id);
-		foo_data.tx_head = 0;
-		foo_data.tx_tail = len;
+		len = sprintf(msg, "AT+CIPCLOSE=%d", id);
+		msg[len] = '\0';
 
-		esp8266_set_request_state(ESP8266_DISCONNECT);
-
-		uart_irq_rx_enable(foo_data.uart_dev);
-		uart_irq_tx_enable(foo_data.uart_dev);
-		k_sem_take(&transfer_complete, K_FOREVER);
+		if (send_at_cmd(NULL, msg, MDM_CMD_TIMEOUT) < 0) {
+			SYS_LOG_ERR("failed to close\n");
+		}
 	}
 
 	net_context_unref(context);
@@ -448,7 +765,7 @@ static int esp8266_recv(struct net_context *context,
 	data = context->offload_context;
 
 	data->recv_cb = cb;
-	data->recv_cb_data = user_data;
+	data->recv_user_data = user_data;
 
 	return 0;
 }
@@ -465,223 +782,87 @@ static struct net_offload esp8266_offload = {
 	.put		= esp8266_put,
 };
 
-#if !defined(CONFIG_WIFI_ESP8266_HAS_ENABLE_PIN)
-static int esp8266_mgmt_reset(struct device *dev)
-{
-	int len;
-
-	len = sprintf(foo_data.tx_buf, "AT+RST\r\n");
-	foo_data.tx_head = 0;
-	foo_data.tx_tail = len;
-	esp8266_set_request_state(ESP8266_RESET);
-
-	uart_irq_rx_enable(dev);
-	uart_irq_tx_enable(dev);
-//	k_sem_reset(&transfer_complete);
-	k_sem_take(&transfer_complete, K_FOREVER);
-
-	return 0;
-};
-#endif
-
-static int esp8266_mgmt_echo(struct device *dev)
-{
-	int len;
-
-	len = sprintf(foo_data.tx_buf, "ATE0\r\n");
-	foo_data.tx_head = 0;
-	foo_data.tx_tail = len;
-	esp8266_set_request_state(ESP8266_ECHO);
-
-	uart_irq_rx_enable(dev);
-	uart_irq_tx_enable(dev);
-//	k_sem_reset(&transfer_complete);
-	k_sem_take(&transfer_complete, K_FOREVER);
-
-	return 0;
-};
-
 static int esp8266_mgmt_scan(struct device *dev, scan_result_cb_t cb)
 {
-	int len;
-	int i;
+	int ret;
 
+	foo_data.wifi_scan_cb = cb;
 
-	scan_count = 0;
-	tried_parse = 0;
-	len = sprintf(foo_data.tx_buf, "AT+CWLAP\r\n");
-	foo_data.tx_head = 0;
-	foo_data.tx_tail = len;
-	esp8266_set_request_state(ESP8266_SCAN);
-	uart_irq_rx_enable(foo_data.uart_dev);
-	uart_irq_tx_enable(foo_data.uart_dev);
+	ret = send_at_cmd(NULL, "AT+CWLAP", MDM_CMD_TIMEOUT);
+	if (ret < 0) {
+		SYS_LOG_ERR("failed to send scan\n");
+		ret = -EINVAL;
+	}
 
-//	k_sem_reset(&transfer_complete);
-	k_sem_take(&transfer_complete, K_FOREVER);
-
-	for (i = 0; i < scan_count; i++) {
-		cb(foo_data.iface, 0, &scan_result[i]);
-		k_sleep(200);
-       }
-
+	foo_data.wifi_scan_cb = NULL;
 	return 0;
 };
 
-void parse_scan()
-{
-	int index;
-	char *parTok, *parSaveTok;
-	char *comTok, *comSaveTok;
-	char *ssidTok, *ssidSaveTok;
-
-	/* parse contents */
-	parTok = strtok_r(rx_buf, "()", &parSaveTok);
-	tried_parse++;
-	while (parTok) {
-		if (strstr(parTok, ",")) {
-			comTok = strtok_r(parTok, ",", &comSaveTok);
-			index = 0;
-			while (comTok) {
-				if (index == 0) {
-					switch(*comTok) {
-						case '0':
-						case '1':
-						case '5':
-						default:
-							scan_result[scan_count].security = WIFI_SECURITY_TYPE_NONE;
-							break;
-						case '2':
-						case '3':
-						case '4':
-							scan_result[scan_count].security = WIFI_SECURITY_TYPE_PSK;
-							break;
-					};
-				}
-				/* ssid */
-				if (index == 1) {
-					ssidTok = strtok_r(comTok, "\"", &ssidSaveTok);
-					strncpy(scan_result[scan_count].ssid, ssidTok, strlen(ssidTok)+1);
-					scan_result[scan_count].ssid_length = strlen(comTok);
-				}
-				if (index == 2) {
-					scan_result[scan_count].rssi = atoi(comTok);
-				}
-				if (index == 4) {
-					scan_result[scan_count].channel = atoi(comTok);
-				}
-				comTok = strtok_r(NULL, ",", &comSaveTok);
-				index++;
-			}
-		}
-		parTok = strtok_r(NULL, "()", &parSaveTok);
-	}
-}
+static u8_t connect_msg[100];
 
 static int esp8266_mgmt_connect(struct device *dev,
 				   struct wifi_connect_req_params *params)
 {
 	int len;
+	int ret;
 
 	if (params->security == WIFI_SECURITY_TYPE_PSK) {
-		len = sprintf(foo_data.tx_buf, "AT+CWJAP_CUR=\"");
-		memcpy(&foo_data.tx_buf[len], params->ssid,
+		len = sprintf(connect_msg, "AT+CWJAP_CUR=\"");
+		memcpy(&connect_msg[len], params->ssid,
 		       params->ssid_length);
 		len += params->ssid_length;
-		len += sprintf(&foo_data.tx_buf[len], "\",\"");
-		memcpy(&foo_data.tx_buf[len], params->psk,
+		len += sprintf(&connect_msg[len], "\",\"");
+		memcpy(&connect_msg[len], params->psk,
 		       params->psk_length);
 		len += params->psk_length;
-		len += sprintf(&foo_data.tx_buf[len], "\"\r\n");
+		len += sprintf(&connect_msg[len], "\"");
+		connect_msg[len] = '\0';
 	} else {
-		len = sprintf(foo_data.tx_buf, "AT+CWJAP_CUR=\"");
-		memcpy(&foo_data.tx_buf[len], params->ssid,
+		len = sprintf(connect_msg, "AT+CWJAP_CUR=\"");
+		memcpy(&connect_msg[len], params->ssid,
 		       params->ssid_length);
 		len += params->ssid_length;
-		len += sprintf(&foo_data.tx_buf[len], "\"\r\n");
+		len += sprintf(&connect_msg[len], "\"");
+		connect_msg[len] = '\0';
 	}
 
-	foo_data.tx_head = 0;
-	foo_data.tx_tail = len;
-	esp8266_set_request_state(ESP8266_CONNECT);
-	uart_irq_rx_enable(foo_data.uart_dev);
-	uart_irq_tx_enable(foo_data.uart_dev);
-
-//	k_sem_reset(&transfer_complete);
-	k_sem_take(&transfer_complete, K_FOREVER);
-	if (foo_data.resp == ESP8266_OK) {
-		k_delayed_work_submit(&foo_data.work, 200);
-		return 0;
-	} else {
-		return 1;
+	ret = send_at_cmd(NULL, connect_msg, MDM_CMD_TIMEOUT * 2);
+	if (ret < 0) {
+		SYS_LOG_ERR("failed to send scan\n");
+		return -EINVAL;
 	}
-}
 
-static int esp8266_mgmt_disconnect(struct device *dev)
-{
-	int len;
-
-	len = sprintf(foo_data.tx_buf, "AT+CWQAP\r\n");
-	foo_data.tx_head = 0;
-	foo_data.tx_tail = len;
-	esp8266_set_request_state(ESP8266_DISCONNECT);
-	uart_irq_tx_enable(foo_data.uart_dev);
-
-//	k_sem_reset(&transfer_complete);
-	k_sem_take(&transfer_complete, K_FOREVER);
 	return 0;
 }
 
-static void esp8266_work_handler(struct k_work *work)
+static void esp8266_get_mac_addr(void)
 {
-	int len;
+	int ret;
 
-	/* get current IP */
-	if (foo_data.event & EVENT_GOT_IP) {
-		if (foo_data.transaction |= ESP8266_IDLE) {
-			k_delayed_work_submit(&foo_data.work, 500);
-		} else {
-			esp8266_set_request_state(ESP8266_GET_IP);
-			len = sprintf(foo_data.tx_buf, "AT+CIPSTA_CUR?\r\n");
-			foo_data.tx_head = 0;
-			foo_data.tx_tail = len;
-			uart_irq_tx_enable(foo_data.uart_dev);
-
-			k_sem_take(&transfer_complete, 2000);
-
-			foo_data.event &= ~EVENT_GOT_IP;
-
-			/* update interface addresses */
-			net_if_ipv4_set_gw(foo_data.iface, &foo_data.gw);
-			net_if_ipv4_set_netmask(foo_data.iface,
-						&foo_data.netmask);
-			net_if_ipv4_addr_add(foo_data.iface, &foo_data.ip, NET_ADDR_DHCP,
-					     0);
-		}
+	ret = send_at_cmd(NULL, "AT+CIPAPMAC_CUR?", MDM_CMD_TIMEOUT);
+	if (ret < 0) {
+		SYS_LOG_ERR("failed to query mac address\n");
+		return;
 	}
-	if (foo_data.event & EVENT_CONNECT) {
-		wifi_mgmt_raise_connect_result_event(foo_data.iface,
-			0);
-		foo_data.event &= ~EVENT_CONNECT;
-		foo_data.connected = 1;
+}
+
+
+static int esp8266_mgmt_disconnect(struct device *dev)
+{
+	int ret;
+
+	ret = send_at_cmd(NULL, "AT+CWQAP", MDM_CMD_TIMEOUT);
+	if (ret < 0) {
+		SYS_LOG_ERR("failed to query mac address\n");
+		return;
 	}
 
-	if (foo_data.event & EVENT_DISCONNECT) {
-		wifi_mgmt_raise_disconnect_result_event(foo_data.iface,
-			0);
-		foo_data.event &= ~EVENT_DISCONNECT;
-		foo_data.connected = 0;
-	}
-
-	if (foo_data.event & EVENT_SOCK_CONNECT) {
-		foo_data.event &= ~EVENT_SOCK_CONNECT;
-	}
+	return 0;
 }
 
 static void esp8266_iface_init(struct net_if *iface)
 {
-	net_if_set_link_addr(iface, foo_data.mac,
-			     sizeof(foo_data.mac),
-			     NET_LINK_ETHERNET);
+	atomic_clear_bit(iface->if_dev->flags, NET_IF_UP);
 
 	/* TBD: Pending support for socket offload: */
 	iface->if_dev->offload = &esp8266_offload;
@@ -696,147 +877,324 @@ static const struct net_wifi_mgmt_offload esp8266_api = {
 	.disconnect	= esp8266_mgmt_disconnect,
 };
 
-static const char esp8266_resp_ready[] = "ready";
-
-const u8_t *ready_tok = esp8266_resp_ready;
-
-static int check_for_ready(u8_t c)
+static inline struct net_buf *read_rx_allocator(s32_t timeout, void *user_data)
 {
-	if (c == *ready_tok) {
-		ready_tok++;
-		if (*ready_tok == 0) {
-			foo_data.resp = ESP8266_READY;
-			return 1;
-		}
-	} else {
-		ready_tok = esp8266_resp_ready;
-	}
-	return 0;
+	return net_buf_alloc((struct net_buf_pool *)user_data, timeout);
 }
 
-void parse_mac(void)
+static void esp8266_read_rx(struct net_buf **buf)
 {
-	int index;
-	char *parTok, *parSaveTok;
-	char *colTok, *colSaveTok;
+	u8_t uart_buffer[128];
+	size_t bytes_read = 0;
+	int ret;
+	u16_t rx_len;
 
-	/* parse contents */
-	parTok = strtok_r(rx_buf, ":\"", &parSaveTok);
-	while (parTok) {
-		if (strstr(parTok, ":")) {
-			colTok = strtok_r(parTok, ":", &colSaveTok);
-			index = 0;
-			while (colTok) {
-				foo_data.mac[index] = strtoul(colTok, NULL, 16);
-				index++;
-				colTok = strtok_r(NULL, ":", &colSaveTok);
+	/* read all of the data from mdm_receiver */
+	while (true) {
+		ret = mdm_receiver_recv(&foo_data.mdm_ctx,
+					uart_buffer,
+					sizeof(uart_buffer),
+					&bytes_read);
+		if (ret < 0) {
+			/* mdm_receiver buffer is empty */
+			break;
+		}
+		_hexdump(uart_buffer, bytes_read);
+
+		/* make sure we have storage */
+		if (!*buf) {
+			*buf = net_buf_alloc(&esp8266_recv_pool, BUF_ALLOC_TIMEOUT);
+			if (!*buf) {
+				SYS_LOG_ERR("Can't allocate RX data! "
+					    "Skipping data!");
+				break;
 			}
 		}
-		parTok = strtok_r(NULL, "\"", &parSaveTok);
+
+		rx_len = net_buf_append_bytes(*buf, bytes_read, uart_buffer,
+					      BUF_ALLOC_TIMEOUT,
+					      read_rx_allocator,
+					      &esp8266_recv_pool);
+		if (rx_len < bytes_read) {
+			SYS_LOG_ERR("Data was lost! read %u of %u!",
+				    rx_len, bytes_read);
+		}
 	}
 }
 
-void parse_ip(void)
+
+static bool is_crlf(u8_t c)
 {
-	int index;
-	char *parTok, *ipTok, *addrTok, *octetTok, *parSaveTok, *octSaveTok;
-	struct in_addr *addr;
-
-	/* parse contents */
-	parTok = strtok_r(rx_buf, ":", &parSaveTok);
-	ipTok = strtok_r(NULL, ":", &parSaveTok);
-	addrTok = strtok_r(NULL, ":\"", &parSaveTok);
-	octetTok = strtok_r(addrTok, ".", &octSaveTok);
-
-	if (strstr(ipTok, "ip")) {
-		addr = &foo_data.ip;
-	} else if (strstr(ipTok, "gateway")) {
-		addr = &foo_data.gw;
-	} else if (strstr(ipTok, "netmask")) {
-		addr = &foo_data.netmask;
+	if (c == '\n' || c == '\r') {
+		return true;
 	} else {
+		return false;
+	}
+}
+
+static void net_buf_skipcrlf(struct net_buf **buf)
+{
+	/* chop off any /n or /r */
+	while (*buf && is_crlf(*(*buf)->data)) {
+		net_buf_pull_u8(*buf);
+		if (!(*buf)->len) {
+			*buf = net_buf_frag_del(NULL, *buf);
+		}
+	}
+}
+
+static u16_t net_buf_findcrlf(struct net_buf *buf, struct net_buf **frag,
+			      u16_t *offset)
+{
+	u16_t len = 0, pos = 0;
+
+	while (buf && !is_crlf(*(buf->data + pos))) {
+		if (pos + 1 >= buf->len) {
+			len += buf->len;
+			buf = buf->frags;
+			pos = 0;
+		} else {
+			pos++;
+		}
+	}
+
+	if (buf && is_crlf(*(buf->data + pos))) {
+		len += pos;
+		*offset = pos;
+		*frag = buf;
+		return len;
+	}
+
+	return 0;
+}
+/* Setup IP header data to be used by some network applications.
+ * While much is dummy data, some fields such as dst, port and family are
+ * important.
+ * Return the IP + protocol header length.
+ */
+static int net_pkt_setup_ip_data(struct net_pkt *pkt,
+	enum net_ip_protocol proto,
+	struct sockaddr *src,
+	struct sockaddr *dst)
+{
+	int hdr_len = 0;
+	u16_t src_port = 0, dst_port = 0;
+
+#if defined(CONFIG_NET_IPV6)
+	if (net_pkt_family(pkt) == AF_INET6) {
+		net_buf_add(pkt->frags, NET_IPV6H_LEN);
+
+		/* set IPv6 data */
+		NET_IPV6_HDR(pkt)->vtc = 0x60;
+		NET_IPV6_HDR(pkt)->tcflow = 0;
+		NET_IPV6_HDR(pkt)->flow = 0;
+		net_ipaddr_copy(&NET_IPV6_HDR(pkt)->src,
+			&((struct sockaddr_in6 *)dst)->sin6_addr);
+		net_ipaddr_copy(&NET_IPV6_HDR(pkt)->dst,
+			&((struct sockaddr_in6 *)src)->sin6_addr);
+		NET_IPV6_HDR(pkt)->nexthdr = proto;
+
+		src_port = net_sin6(&dst)->sin6_port;
+		dst_port = net_sin6(&src)->sin6_port;
+
+		net_pkt_set_ip_hdr_len(pkt, sizeof(struct net_ipv6_hdr));
+		net_pkt_set_ipv6_ext_len(pkt, 0);
+		hdr_len = sizeof(struct net_ipv6_hdr);
+	} else
+#endif
+#if defined(CONFIG_NET_IPV4)
+	if (net_pkt_family(pkt) == AF_INET) {
+		net_buf_add(pkt->frags, NET_IPV4H_LEN);
+
+		/* set IPv4 data */
+		NET_IPV4_HDR(pkt)->vhl = 0x45;
+		NET_IPV4_HDR(pkt)->tos = 0x00;
+		net_ipaddr_copy(&NET_IPV4_HDR(pkt)->src,
+			&((struct sockaddr_in *)dst)->sin_addr);
+		net_ipaddr_copy(&NET_IPV4_HDR(pkt)->dst,
+			&((struct sockaddr_in *)src)->sin_addr);
+		NET_IPV4_HDR(pkt)->proto = proto;
+
+		src_port = net_sin(dst)->sin_port;
+		dst_port = net_sin(src)->sin_port;
+
+		net_pkt_set_ip_hdr_len(pkt, sizeof(struct net_ipv4_hdr));
+		hdr_len = sizeof(struct net_ipv4_hdr);
+	} else
+#endif
+	{
+		/* no error here as hdr_len is checked later for 0 value */
+	}
+
+#if defined(CONFIG_NET_UDP)
+	if (proto == IPPROTO_UDP) {
+		struct net_udp_hdr hdr, *udp;
+
+		net_buf_add(pkt->frags, NET_UDPH_LEN);
+		udp = net_udp_get_hdr(pkt, &hdr);
+		memset(udp, 0, NET_UDPH_LEN);
+
+		/* Setup UDP header */
+		udp->src_port = src_port;
+		udp->dst_port = dst_port;
+		net_udp_set_hdr(pkt, udp);
+		hdr_len += NET_UDPH_LEN;
+	} else
+#endif
+#if defined(CONFIG_NET_TCP)
+	if (proto == IPPROTO_TCP) {
+		struct net_tcp_hdr hdr, *tcp;
+
+		net_buf_add(pkt->frags, NET_TCPH_LEN);
+		tcp = net_tcp_get_hdr(pkt, &hdr);
+		memset(tcp, 0, NET_TCPH_LEN);
+
+		/* Setup TCP header */
+		tcp->src_port = src_port;
+		tcp->dst_port = dst_port;
+		net_tcp_set_hdr(pkt, tcp);
+		hdr_len += NET_TCPH_LEN;
+	} else
+#endif /* CONFIG_NET_TCP */
+	{
+		/* no error here as hdr_len is checked later for 0 value */
+	}
+
+	return hdr_len;
+}
+
+static struct net_buf * esp8266_read_data(struct net_buf *buf)
+{
+	struct net_buf *frag = buf;
+	struct socket_data *sock = &foo_data.socket_data[foo_data.data_id];
+	int pos;
+
+	if (!sock->rx_pkt) {
+		pos = net_buf_frags_len(buf);
+		if (pos > foo_data.data_len) {
+			frag = net_buf_skip(buf, foo_data.data_len);
+			foo_data.data_len = 0;
+		} else {
+			frag = net_buf_skip(buf, pos);
+			foo_data.data_len -= pos;
+		}
+		return frag;
+	}
+
+	while (frag && foo_data.data_len) {
+		if (frag->len > foo_data.data_len) {
+			pos = net_pkt_append(sock->rx_pkt, foo_data.data_len,
+				frag->data, BUF_ALLOC_TIMEOUT);
+			if (pos != foo_data.data_len) {
+				SYS_LOG_ERR("unable to add data\n");
+				net_pkt_unref(sock->rx_pkt);
+				sock->rx_pkt = NULL;
+				break;
+			}
+			foo_data.data_len = 0;
+			net_buf_skip(frag, foo_data.data_len);
+		} else {
+			pos = net_pkt_append(sock->rx_pkt, frag->len, frag->data,
+				BUF_ALLOC_TIMEOUT);
+			if (pos != frag->len) {
+				SYS_LOG_ERR("unable to add data\n");
+				net_pkt_unref(sock->rx_pkt);
+				sock->rx_pkt = NULL;
+				break;
+			}
+			foo_data.data_len -= frag->len;
+			frag = net_buf_skip(frag, frag->len);
+		}
+	}
+
+	if (foo_data.data_len == 0) {
+		if (sock->rx_pkt) {
+			k_work_submit_to_queue(&esp8266_workq, &sock->recv_cb_work);
+		}
+	}
+	return frag;
+}
+
+static void esp8266_process_setup_read(struct net_buf **buf, int end)
+{
+	struct socket_data *sock;
+	struct net_buf *frag, *rbuf;
+	u8_t temp[32];
+	u16_t pos;
+	int d[6];
+	int i;
+	int slen;
+	int len = net_buf_frags_len(*buf);
+	int hdr_len;
+
+	d[0] = net_buf_find_next_delimiter(*buf, ',', 0, end);
+	d[1] = net_buf_find_next_delimiter(*buf, ',', d[0] + 1, end);
+	d[2] = net_buf_find_next_delimiter(*buf, ',', d[1] + 1, end);
+
+	slen = d[1] - d[0] - 1;
+	net_buf_linearize(temp, 32, *buf, d[0] + 1, slen);
+	temp[slen] = '\0';
+	foo_data.data_id = strtoul(temp, NULL, 10);
+
+	slen = end - d[1] - 1;
+	net_buf_linearize(temp, 32, *buf, d[1] + 1, slen);
+	temp[slen] = '\0';
+	foo_data.data_len = strtoul(temp, NULL, 10);
+	*buf = net_buf_skip(*buf, end + 1);
+
+	printk("MATCH +IPD (len:%u)\n", foo_data.data_len + end + 1);
+
+	sock = &foo_data.socket_data[foo_data.data_id];
+	sock->rx_pkt = net_pkt_get_rx(sock->context, BUF_ALLOC_TIMEOUT);
+	if (!sock->rx_pkt) {
+		printk("Failed to get net pkt\n");
 		return;
 	}
 
-	index = 0;
-	while(octetTok) {
-		addr->s4_addr[index] = atoi(octetTok);
-		octetTok = strtok_r(NULL, ".", &octSaveTok);
-		index++;
+	/* set up packet data */
+	net_pkt_set_context(sock->rx_pkt, sock->context);
+	net_pkt_set_family(sock->rx_pkt, sock->family);
+
+	frag = net_pkt_get_frag(sock->rx_pkt, BUF_ALLOC_TIMEOUT);
+	if (!frag) {
+		printk("Failed to get frag\n");
+		net_pkt_unref(sock->rx_pkt);
+		sock->rx_pkt = NULL;
+		return;
 	}
+
+	net_pkt_frag_add(sock->rx_pkt, frag);
+	net_pkt_set_appdatalen(sock->rx_pkt, foo_data.data_len);
+
+	hdr_len = net_pkt_setup_ip_data(sock->rx_pkt, sock->ip_proto,
+			&sock->src, &sock->dst);
+	if (hdr_len > 0) {
+		frag = net_frag_get_pos(sock->rx_pkt, hdr_len, &pos);
+		NET_ASSERT(frag);
+		net_pkt_set_appdata(sock->rx_pkt, frag->data + pos);
+	} else {
+		net_pkt_set_appdata(sock->rx_pkt,
+				    sock->rx_pkt->frags->data);
+	}
+
+	return;
 }
 
-void scan_line(void)
+static void sockreadrecv_cb_work(struct k_work *work)
 {
-	char *comTok, *comSaveTok;
+	struct socket_data *sock = NULL;
+	struct net_pkt *pkt;
 
-	if (strstr(rx_buf, "SEND OK")) {
-		printk("send ok\n");
-		foo_data.resp = ESP8266_SEND_OK;
-		esp8266_clear_request_state();
-		k_sem_give(&transfer_complete);
-	} else if (strstr(rx_buf, "OK")) {
-		foo_data.resp = ESP8266_OK;
-		if (foo_data.transaction != ESP8266_SEND_DATA) {
-			esp8266_clear_request_state();
-			k_sem_give(&transfer_complete);
-		}
-	} else if (strstr(rx_buf, "ERROR")) {
-		foo_data.resp = ESP8266_ERROR;
-		esp8266_clear_request_state();
-		k_sem_give(&transfer_complete);
-	} else if (strstr(rx_buf, "FAIL")) {
-		printk("fail\n");
-		foo_data.resp = ESP8266_FAIL;
-		esp8266_clear_request_state();
-		k_sem_give(&transfer_complete);
-	} else if (strstr(rx_buf, "+CWLAP")) {
-		parse_scan();
-		scan_count++;
-	} else if (strstr(rx_buf, "WIFI GOT IP")) {
-		foo_data.event |= EVENT_GOT_IP;
-		if (foo_data.transaction == ESP8266_IDLE) {
-			k_delayed_work_submit(&foo_data.work, 0);
-		}
-	} else if (strstr(rx_buf, "WIFI DISCONNECT")) {
-		foo_data.event |= EVENT_DISCONNECT;
-		k_delayed_work_submit(&foo_data.work, 0);
-	} else if (strstr(rx_buf, "WIFI CONNECTED")) {
-		foo_data.event |= EVENT_CONNECT;
-		k_delayed_work_submit(&foo_data.work, 0);
-	} else if (strstr(rx_buf, "+CIPAPMAC_CUR")) {
-		parse_mac();
-	} else if (strstr(rx_buf, "+CIPSTA_CUR")) {
-		parse_ip();
-	} else if (strstr(rx_buf, "busy s...")) {
-		printk("busy send\n");
-	} else if (strstr(rx_buf, "busy p...")) {
-		printk("busy p");
-	} else if (strstr(rx_buf, ",CONNECT")) {
-		/* got a incoming TCP connection */
-		foo_data.event |= EVENT_SOCK_CONNECT;
-		k_delayed_work_submit(&foo_data.work, 0);
-	} else if (strstr(rx_buf, ",CLOSED")) {
-		/* client closed connection */
-		foo_data.event |= EVENT_SOCK_DISCONNECT;
-		k_delayed_work_submit(&foo_data.work, 0);
-	} else if (strstr(rx_buf, "SEND FAIL")) {
-		foo_data.resp = ESP8266_ERROR;
-		esp8266_clear_request_state();
-		k_sem_give(&transfer_complete);
-	} else if (strstr(rx_buf, "link is not valid")) {
-		foo_data.resp = ESP8266_ERROR;
-		esp8266_clear_request_state();
-		k_sem_give(&transfer_complete);
-	} else if (strstr(rx_buf, "+IPD")) {
-		printk("%s\n", rx_buf);
-		/* receiving data */
-	} else if (rx_buf[0] == '>') {
-		foo_data.resp = ESP8266_OK;
-		k_sem_give(&transfer_complete);
-		foo_data.transaction = ESP8266_SEND_READY;
+	sock = CONTAINER_OF(work, struct socket_data, recv_cb_work);
+
+	/* return data */
+	pkt = sock->rx_pkt;
+	sock->rx_pkt = NULL;
+	if (sock->recv_cb) {
+		sock->recv_cb(sock->context, pkt, 0, sock->recv_user_data);
+	} else {
+		net_pkt_unref(pkt);
 	}
-	rx_last = 0;
 }
 
 /* RX thread */
@@ -847,115 +1205,248 @@ static void esp8266_rx(void)
 	int i;
 	u16_t offset, len;
 
+	static const struct cmd_handler handlers[] = {
+		CMD_HANDLER("AT+RST", atcmdecho_nosock),
+		CMD_HANDLER("ATE1", atcmdecho_nosock),
+		CMD_HANDLER("OK\r\n>", sock_send_ready),
+		CMD_HANDLER("OK", sockok),
+		CMD_HANDLER("ERROR", sockerror),
+		CMD_HANDLER("FAIL", sockerror),
+		CMD_HANDLER("WIFI GOT IP", ip_addr_get),
+		CMD_HANDLER("AT+CWJAP_CUR=", atcmdecho_nosock),
+		CMD_HANDLER("WIFI CONNECTED", wifi_connected_resp),
+		CMD_HANDLER("WIFI DISCONNECT",wifi_disconnected_resp),
+		CMD_HANDLER("SEND OK", sendok),
+		CMD_HANDLER("link is not valid", atcmdecho_nosock),
+		CMD_HANDLER("busy p...", atcmdecho_nosock),
+		CMD_HANDLER("busy s...", atcmdecho_nosock),
+		CMD_HANDLER("ready", esp8266_ready),
+		CMD_HANDLER("AT+CIPAPMAC_CUR?", atcmdecho_nosock),
+		CMD_HANDLER("+CIPAPMAC_CUR:", mac_addr_resp),
+		CMD_HANDLER("AT+CIPSTA_CUR?", atcmdecho_nosock),
+		CMD_HANDLER("+CIPSTA_CUR:", ip_addr_resp),
+		CMD_HANDLER("AT+CWLAP", atcmdecho_nosock),
+		CMD_HANDLER("+CWLAP:", wifi_scan_resp),
+		CMD_HANDLER("+CWLAP:", wifi_scan_resp),
+	//	CMD_HANDLER("+IPD", receive),
+		CMD_HANDLER("AT+CIPSEND=", atcmdecho_nosock),
+		CMD_HANDLER("0,CONNECT", atcmdecho_nosock),
+		CMD_HANDLER("1,CONNECT", atcmdecho_nosock),
+		CMD_HANDLER("2,CONNECT", atcmdecho_nosock),
+		CMD_HANDLER("3,CONNECT", atcmdecho_nosock),
+		CMD_HANDLER("4,CONNECT", atcmdecho_nosock),
+		CMD_HANDLER("0,CLOSED", atcmdecho_nosock),
+		CMD_HANDLER("1,CLOSED", atcmdecho_nosock),
+		CMD_HANDLER("2,CLOSED", atcmdecho_nosock),
+		CMD_HANDLER("3,CLOSED", atcmdecho_nosock),
+		CMD_HANDLER("4,CLOSED", atcmdecho_nosock),
+	};
+
 	while (true) {
-		k_sem_take(&uart_rx_sem, K_FOREVER);
+		k_sem_take(&foo_data.mdm_ctx.rx_sem, K_FOREVER);
 
+		esp8266_read_rx(&rx_buf);
 
-	}
-}
+		while (rx_buf) {
 
-static void esp8266_parse_rx(void)
-{
-	int i;
-	u8_t end;
+			if (foo_data.data_len) {
+				rx_buf = esp8266_read_data(rx_buf);
+			}
 
-	switch(foo_data.transaction) {
-		case ESP8266_POWER_UP:
-			/*
-			 * board is powering up, discard all input until
-			 * after the ready
-			 */
-			/* look for 'ready' */
-			for(; foo_data.rx_head != foo_data.rx_tail;) {
-				end = foo_data.rx_buf[foo_data.rx_tail];
-				foo_data.rx_tail = (foo_data.rx_tail + 1) &
-						(ESP8266_BUF_SIZE - 1);
-				if (check_for_ready(end)) {
-						foo_data.initialized = 1;
-						esp8266_clear_request_state();
-						rx_last = 0;
-						k_sem_give(&transfer_complete);
+			net_buf_skipcrlf(&rx_buf);
+			if (!rx_buf) {
+				break;
+			}
+
+			/* check for incoming data */
+			if (net_buf_ncmp(rx_buf, "+IPD,", 5) == 0) {
+				i = net_buf_find_next_delimiter(rx_buf, ':',
+					0, net_buf_frags_len(rx_buf));
+				if (i < 0) {
+					continue;
+				}
+				esp8266_process_setup_read(&rx_buf, i);
+				rx_buf = esp8266_read_data(rx_buf);
+				if (!rx_buf) {
+					break;
+				}
+				continue;
+			}
+
+			frag = NULL;
+			len = net_buf_findcrlf(rx_buf, &frag, &offset);
+			if (!frag) {
+				break;
+			}
+
+			/* look for matching data handlers */
+			i = -1;
+			for (i = 0; i < ARRAY_SIZE(handlers); i++) {
+				if (net_buf_ncmp(rx_buf, handlers[i].cmd,
+						 handlers[i].cmd_len) == 0) {
+					/* found a matching handler */
+					printk("MATCH %s (len:%u)\n",
+						    handlers[i].cmd, len);
+
+					/* skip cmd_len */
+					rx_buf = net_buf_skip(rx_buf,
+							handlers[i].cmd_len);
+
+					/* locate next cr/lf */
+					frag = NULL;
+					len = net_buf_findcrlf(rx_buf,
+							       &frag, &offset);
+
+#if 0
+					if (!frag) {
+						printk("skipping %s\n",
+handlers[i].cmd);
 						break;
+					}
+#endif
+
+					/* call handler */
+					if (handlers[i].func) {
+						handlers[i].func(&rx_buf, len);
+					}
+
+					frag = NULL;
+					/* make sure buf still has data */
+					if (!rx_buf) {
+						break;
+					}
+
+					/* locate next cr/lf */
+					len = net_buf_findcrlf(rx_buf,
+							       &frag, &offset);
+					if (!frag) {
+						break;
+					}
+
+					break;
 				}
 			}
-			foo_data.rx_full = 0;
-			break;
-		default:
-			for(; foo_data.rx_head != foo_data.rx_tail; i++) {
-				end = foo_data.rx_buf[foo_data.rx_tail];
-//				if (foo_data.debug)
-//					printk("%c", end);
-				rx_buf[rx_last++] = end == '\r'? 0: end;
 
-				if (foo_data.receiving) {
-				} else if (end == '\n' ||
-				    (foo_data.transaction == ESP8266_SEND_DATA
-&& end == '>'))
-					scan_line();
-				foo_data.rx_tail = (foo_data.rx_tail + 1) & (ESP8266_BUF_SIZE - 1);
+			if (frag && rx_buf) {
+				/* clear out processed line (buffers) */
+				while (frag && rx_buf != frag) {
+					rx_buf = net_buf_frag_del(NULL, rx_buf);
+				}
+
+				net_buf_pull(rx_buf, offset);
 			}
-			foo_data.rx_full = 0;
-			break;
+		}
+
+		/* give up time if we have a solid stream of data */
+		k_yield();
 	}
 }
 
-static void esp8266_uart_isr(struct device *dev)
+#if defined(CONFIG_WIFI_ESP8266_HAS_ENABLE_PIN)
+static void esp8266_gpio_reset(void)
 {
-	int count;
-	u8_t c;
-	int rlen;
+	struct device *gpio_dev = device_get_binding(CONFIG_WIFI_ESP8266_GPIO_DEVICE);
 
-	uart_irq_update(dev);
-
-	while(uart_irq_rx_ready(foo_data.uart_dev)){
-
-		if (foo_data.rx_full) {
-			/* drain over flow */
-			printk("overflow on read - discarding\n");
-			uart_fifo_read(dev, &c, 1);
-			continue;
-		}
-
-		rlen = (foo_data.rx_head >= foo_data.rx_tail) ?
-				ESP8266_BUF_SIZE - foo_data.rx_head:
-				foo_data.rx_tail - foo_data.rx_head;
-
-		/* read into circular buffer onto head */
-		count = uart_fifo_read(dev, &foo_data.rx_buf[foo_data.rx_head],
-				       rlen);
-
-		if (count) {
-			foo_data.rx_head = (foo_data.rx_head + count) & (ESP8266_BUF_SIZE - 1);
-			if (foo_data.rx_head == foo_data.rx_tail) {
-				foo_data.rx_full = 1;
-			}
-		}
-
-		esp8266_parse_rx();
+	if (!gpio_dev) {
+		SYS_LOG_ERR("gpio device is not found: %s",
+			    CONFIG_WIFI_ESP8266_GPIO_DEVICE);
 	}
 
-	while(uart_irq_tx_ready(dev)){
-		if (foo_data.tx_head == foo_data.tx_tail) {
-			uart_irq_tx_disable(dev);
+	gpio_pin_configure(gpio_dev, CONFIG_WIFI_ESP8266_GPIO_ENABLE_PIN,
+			   GPIO_DIR_OUT);
+
+	/* disable device until we want to configure it*/
+	gpio_pin_write(drv_data->gpio_dev, CONFIG_WIFI_ESP8266_GPIO_ENABLE_PIN, 0);
+
+	/* enable device and check for ready */
+	k_sleep(100);
+	gpio_pin_write(drv_data->gpio_dev, CONFIG_WIFI_ESP8266_GPIO_ENABLE_PIN, 1);
+}
+#endif
+
+static void esp8266_reset_work(struct k_work *work)
+{
+	int ret = -1;
+	int retry_count = 3;
+
+#if defined(CONFIG_WIFI_ESP8266_HAS_ENABLE_PIN)
+	esp8266_gpio_reset();
+#else
+	/* send AT+RST command */
+	while(retry_count-- && ret < 0) {
+		k_sleep(K_MSEC(100));
+		ret = send_at_cmd(NULL, "AT+RST", MDM_CMD_TIMEOUT);
+		if (ret < 0 && ret != -ETIMEDOUT) {
 			break;
 		}
-		/* try to send some data */
-		count = uart_fifo_fill(dev, foo_data.tx_buf + foo_data.tx_head,
-				       foo_data.tx_tail - foo_data.tx_head);
-		foo_data.tx_head += count;
 	}
+
+	if (ret < 0) {
+		SYS_LOG_ERR("cannot send reset %d\n", retry_count);
+		return;
+	}
+#endif
+	k_sem_reset(&foo_data.response_sem);
+	if (k_sem_take(&foo_data.response_sem, MDM_CMD_TIMEOUT)) {
+		SYS_LOG_ERR("timed out waiting for device to become ready\n");
+		return;
+	}
+
+	ret = send_at_cmd(NULL, "ATE1", MDM_CMD_TIMEOUT);
+	if (ret < 0) {
+		SYS_LOG_ERR("failed to set echo mode\n");
+		return;
+	}
+
+	ret = send_at_cmd(NULL, "AT+CIPMUX=1", MDM_CMD_TIMEOUT);
+	if (ret < 0) {
+		SYS_LOG_ERR("failed to set multiple socket support\n");
+		return;
+	}
+
+	ret = send_at_cmd(NULL, "AT+CIPAPMAC_CUR?", MDM_CMD_TIMEOUT);
+	if (ret < 0) {
+		SYS_LOG_ERR("failed to set multiple socket support\n");
+		return;
+	}
+
+	ret = send_at_cmd(NULL, "AT+CWQAP", MDM_CMD_TIMEOUT);
+	if (ret < 0) {
+		SYS_LOG_ERR("failed to set multiple socket support\n");
+		return;
+	}
+
+	foo_data.initialized = 1;
 }
+
 
 static int esp8266_init(struct device *dev)
 {
-	struct esp8266_data *drv_data = dev->driver_data;
-	int len;
+	int i, ret;
 
-	drv_data->uart_dev = device_get_binding(CONFIG_WIFI_ESP8266_UART_DEVICE);
+	memset(&foo_data, 0, sizeof(foo_data));
+	for (i = 0; i < ESP8266_MAX_CONNECTIONS; i++) {
+		k_work_init(&foo_data.socket_data[i].recv_cb_work,
+			sockreadrecv_cb_work);
+		k_sem_init(&foo_data.socket_data[i].sock_send_sem, 0, 1);
+	}
 
-	if (!drv_data->uart_dev) {
-		SYS_LOG_ERR("uart device is not found: %s",
-			    CONFIG_WIFI_ESP8266_UART_DEVICE);
+	k_sem_init(&foo_data.response_sem, 0, 1);
+
+	k_delayed_work_init(&foo_data.ip_addr_work, esp8266_ip_addr_work);
+
+	/* initialize the work queue */
+	k_work_q_start(&esp8266_workq,
+		       esp8266_workq_stack,
+		       K_THREAD_STACK_SIZEOF(esp8266_workq_stack),
+		       K_PRIO_COOP(7));
+
+	foo_data.last_socket_id = 0;
+
+
+	if (mdm_receiver_register(&foo_data.mdm_ctx, CONFIG_WIFI_ESP8266_UART_DEVICE,
+				  mdm_recv_buf, sizeof(mdm_recv_buf)) < 0) {
+		SYS_LOG_ERR("Error registering modem receiver");
 		return -EINVAL;
 	}
 
@@ -965,84 +1456,16 @@ static int esp8266_init(struct device *dev)
 			(k_thread_entry_t) esp8266_rx,
 			NULL, NULL, NULL, K_PRIO_COOP(7), 0, K_NO_WAIT);
 
-        /* We use system workqueue to deal with things outside isr: */
-        k_delayed_work_init(&foo_data.work,
-                            esp8266_work_handler);
-	uart_irq_callback_set(drv_data->uart_dev, esp8266_uart_isr);
+	/* Let's start the modem reset in a workq so that init can proceed */
+	k_delayed_work_init(&reset_work, esp8266_reset_work);
+	ret = k_delayed_work_submit_to_queue(&esp8266_workq,
+					     &reset_work, K_MSEC(10));
 
-	uart_irq_rx_enable(drv_data->uart_dev);
-	drv_data->gpio_dev = device_get_binding(CONFIG_WIFI_ESP8266_GPIO_DEVICE);
-	if (!drv_data->gpio_dev) {
-		SYS_LOG_ERR("gpio device is not found: %s",
-			    CONFIG_WIFI_ESP8266_GPIO_DEVICE);
-		return -EINVAL;
-	}
-
-#if defined(CONFIG_WIFI_ESP8266_HAS_ENABLE_PIN)
-	gpio_pin_configure(drv_data->gpio_dev, CONFIG_WIFI_ESP8266_GPIO_ENABLE_PIN,
-			   GPIO_DIR_OUT);
-
-	/* disable device until we want to configure it*/
-	gpio_pin_write(drv_data->gpio_dev, CONFIG_WIFI_ESP8266_GPIO_ENABLE_PIN, 0);
-
-	esp8266_set_request_state(ESP8266_POWER_UP);
-
-	/* enable device and check for ready */
-	k_sleep(100);
-	gpio_pin_write(drv_data->gpio_dev, CONFIG_WIFI_ESP8266_GPIO_ENABLE_PIN, 1);
-#else
-	/* send soft reset to sync device */
-	esp8266_mgmt_reset(drv_data->uart_dev);
-
-	esp8266_set_request_state(ESP8266_POWER_UP);
-#endif
-
-	k_sleep(1000);
-//	k_sem_reset(&transfer_complete);
-	k_sem_take(&transfer_complete, 3000);
-	if (!foo_data.initialized) {
-		SYS_LOG_ERR("esp8266 never became ready\n");
-		/* disable device until we want to configure it*/
-#if defined(CONFIG_WIFI_ESP8266_HAS_ENABLE_PIN)
-		gpio_pin_write(drv_data->gpio_dev, CONFIG_WIFI_ESP8266_GPIO_ENABLE_PIN, 0);
-#endif
-		return -EINVAL;
-	}
-
-	k_sleep(200);
-	esp8266_mgmt_echo(drv_data->uart_dev);
-	k_sleep(200);
-
-	/* get mac address from ESP8266 */
-	len = sprintf(foo_data.tx_buf, "AT+CIPAPMAC_CUR?\r\n");
-	foo_data.tx_head = 0;
-	foo_data.tx_tail = len;
-	esp8266_set_request_state(ESP8266_GET_MAC);
-	uart_irq_tx_enable(foo_data.uart_dev);
-//	k_sem_reset(&transfer_complete);
-	if (k_sem_take(&transfer_complete, 3000)) {
-		SYS_LOG_ERR("failed to get MAC address\n");
-		return -EINVAL;
-	}
-
-	/* turn on multiple connection support */
-	len = sprintf(foo_data.tx_buf, "AT+CIPMUX=1\r\n");
-	foo_data.tx_head = 0;
-	foo_data.tx_tail = len;
-	esp8266_set_request_state(ESP8266_ECHO);
-	uart_irq_tx_enable(foo_data.uart_dev);
-//	k_sem_reset(&transfer_complete);
-	if (k_sem_take(&transfer_complete, 3000)) {
-		SYS_LOG_ERR("failed to set multiple connection support\n");
-		return -EINVAL;
-	}
-
-	printk("ESP8266 initialized\n");
-
+	SYS_LOG_INF("ESP8266 initialized\n");
 	return 0;
 }
 
 NET_DEVICE_OFFLOAD_INIT(esp8266, "ESP8266",
 			esp8266_init, &foo_data, NULL,
-			CONFIG_WIFI_INIT_PRIORITY, &esp8266_api,
-			2048);
+			80, &esp8266_api,
+			1500);
