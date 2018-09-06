@@ -29,12 +29,18 @@
 #include <net/wifi_mgmt.h>
 #include <net/socket.h>
 #include <net/net_app.h>
+#if defined(CONFIG_NET_UDP)
+#include <net/udp.h>
+#endif
+#if defined(CONFIG_NET_TCP)
+#include <net/tcp.h>
+#endif
 #include <drivers/modem/modem_receiver.h>
 
 
 #define ESP8266_MAX_CONNECTIONS	5
 #define BUF_ALLOC_TIMEOUT K_SECONDS(1)
-#define MDM_MAX_DATA_LENGTH	1500
+#define MDM_MAX_DATA_LENGTH	1600
 
 struct cmd_handler {
 	const char *cmd;
@@ -50,7 +56,6 @@ struct cmd_handler {
 }
 
 static u8_t mdm_recv_buf[MDM_MAX_DATA_LENGTH];
-static char rx_buf[512];
 
 /* net bufs */
 NET_BUF_POOL_DEFINE(esp8266_recv_pool, 60, 128, 0, NULL);
@@ -58,7 +63,7 @@ static struct k_delayed_work reset_work;
 static struct k_work_q esp8266_workq;
 
 /* RX thread structures */
-K_THREAD_STACK_DEFINE(esp8266_rx_stack, 1028);
+K_THREAD_STACK_DEFINE(esp8266_rx_stack, 2048);
 
 K_SEM_DEFINE(uart_rx_sem, 0, 1);
 /* RX thread work queue */
@@ -151,8 +156,10 @@ static int send_at_cmd(struct socket_data *sock,
 	foo_data.last_error = 0;
 
 	SYS_LOG_DBG("OUT: [%s]", data);
+	k_mutex_lock(&dev_mutex, K_FOREVER);
 	mdm_receiver_send(&foo_data.mdm_ctx, data, strlen(data));
 	mdm_receiver_send(&foo_data.mdm_ctx, "\r\n", 2);
+	k_mutex_unlock(&dev_mutex);
 
 	if (timeout == K_NO_WAIT) {
 		return 0;
@@ -185,9 +192,11 @@ static int net_buf_find_next_delimiter(struct net_buf *buf, const u8_t d,
 	while (frag && index) {
 		if (frag->len > index) {
 			offset += index;
+			pos += index;
 			break;
 		} else {
 			index -= frag->len;
+			pos += frag->len;
 			offset = 0;
 			if (!frag->frags) {
 				return -1;
@@ -209,7 +218,7 @@ static int net_buf_find_next_delimiter(struct net_buf *buf, const u8_t d,
 		pos++;
 	}
 
-	return index + pos;
+	return pos;
 }
 
 static int net_buf_ncmp(struct net_buf *buf, const u8_t *s2, size_t n)
@@ -344,12 +353,41 @@ static void on_cmd_ip_addr_get(struct net_buf **buf, u16_t len)
 			&foo_data.ip_addr_work, K_SECONDS(2));
 }
 
-static void on_cmd_send_ready(struct net_buf **buf, u16_t len)
-{
-}
 static void on_cmd_conn_closed(struct net_buf **buf, u16_t len)
 {
+	int id;
+	u8_t msg[20];
+	struct socket_data *sock = NULL;
+	int send_len;
+
+	net_buf_linearize(msg, 1, *buf, 0, 1);
+	msg[1] = '\0';
+	id = atoi(msg);
+
+	sock = socket_from_id(id);
+	send_len = sprintf(msg, "AT+CIPCLOSE=%d", id);
+	msg[send_len] = '\0';
+
+	if (send_at_cmd(NULL, msg, MDM_CMD_TIMEOUT) < 0) {
+		SYS_LOG_ERR("failed to close\n");
+		printk("failed to close %d\n", id);
+	}
 }
+
+static void on_cmd_sent_bytes(struct net_buf **buf, u16_t len)
+{
+	char temp[32];
+	char *tok;
+
+	net_buf_linearize(temp, 32, *buf, 0, len);
+	temp[len] = '\0';
+
+	tok = strtok(temp, " ");
+	while(tok) {
+		tok = strtok(NULL, " ");
+	}
+}
+
 
 static void on_cmd_wifi_scan_resp(struct net_buf **buf, u16_t len)
 {
@@ -461,10 +499,6 @@ static void on_cmd_sock_send_ready(struct net_buf **buf, u16_t len)
 	k_sem_give(&foo_data.response_sem);
 }
 
-static void on_cmd_receive(struct net_buf **buf, u16_t len)
-{
-}
-
 static void on_cmd_sendok(struct net_buf **buf, u16_t len)
 {
 	foo_data.last_error = 0;
@@ -553,7 +587,6 @@ static int esp8266_connect(struct net_context *context,
 	char connect_msg[100];
 	int len;
 	const char *type;
-	s32_t timeout_sec = timeout / MSEC_PER_SEC;
 	struct socket_data *sock;
 	char addr_str[32];
 	int ret = -EFAULT;
@@ -595,7 +628,7 @@ static int esp8266_connect(struct net_context *context,
 
 	inet_ntop(sock->dst.sa_family, &net_sin(&sock->dst)->sin_addr,
 			     addr_str, sizeof(addr_str));
-	len = sprintf(connect_msg, "AT+CIPSTART=%d,\"%s\",\"%s\",%d",
+	len = sprintf(connect_msg, "AT+CIPSTART=%d,\"%s\",\"%s\",%d,7200",
 			sock - foo_data.socket_data, type, addr_str,
 			net_sin(&sock->dst)->sin_port);
 
@@ -655,19 +688,22 @@ static int esp8266_accept(struct net_context *context,
 	return -EPFNOSUPPORT;
 }
 
-static u8_t send_msg[32];
-
-static int esp8266_send(struct net_pkt *pkt,
+static int esp8266_sendto(struct net_pkt *pkt,
+		const struct sockaddr *dst_addr,
+		socklen_t addrlen,
 		net_context_send_cb_t cb,
 		s32_t timeout,
 		void *token,
 		void *user_data)
 {
+	u8_t send_msg[48];
 	struct net_context *context = net_pkt_context(pkt);
 	struct socket_data *data;
 	struct net_buf *frag;
 	int id, len;
 	int ret = -EFAULT;
+	int send_len;
+	u8_t addr_str[32];
 
 	if (!context || !context->offload_context) {
 		return -EINVAL;
@@ -677,8 +713,17 @@ static int esp8266_send(struct net_pkt *pkt,
 	id = data - foo_data.socket_data;
 
 	frag = pkt->frags;
-	len = sprintf(send_msg, "AT+CIPSEND=%d,%d\r\n", id,
-		      net_buf_frags_len(frag));
+	send_len = net_buf_frags_len(frag);
+	if (net_context_get_type(context) == SOCK_STREAM) {
+		len = sprintf(send_msg, "AT+CIPSEND=%d,%d", id,
+			      net_buf_frags_len(frag));
+	} else {
+		inet_ntop(data->dst.sa_family, &net_sin(&data->dst)->sin_addr,
+			     addr_str, sizeof(addr_str));
+		len = sprintf(send_msg, "AT+CIPSEND=%d,%d,\"%s\",%d", id,
+			      net_buf_frags_len(frag), addr_str,
+				net_sin(&data->dst)->sin_port);
+	}
 
 	ret = send_at_cmd(NULL, send_msg, MDM_CMD_TIMEOUT * 2);
 	if (ret < 0) {
@@ -687,14 +732,24 @@ static int esp8266_send(struct net_pkt *pkt,
 		goto ret_early;
 	}
 
-	while (frag) {
-		mdm_receiver_send(&foo_data.mdm_ctx, frag->data,
-				  frag->len);
-		frag = frag->frags;
+	k_mutex_lock(&dev_mutex, K_FOREVER);
+	while (send_len && frag) {
+		if (frag->len > send_len) {
+			mdm_receiver_send(&foo_data.mdm_ctx, frag->data,
+					  send_len);
+			send_len = 0;
+			break;
+		} else {
+			mdm_receiver_send(&foo_data.mdm_ctx, frag->data,
+					  frag->len);
+			send_len -= frag->len;
+			frag = frag->frags;
+		}
 	}
+	k_mutex_unlock(&dev_mutex);
 
 	k_sem_reset(&foo_data.response_sem);
-	ret = k_sem_take(&foo_data.response_sem, MDM_CMD_TIMEOUT);
+	ret = k_sem_take(&foo_data.response_sem, MDM_CMD_TIMEOUT*2);
 
 	if (ret == 0) {
 		ret = foo_data.last_error;
@@ -703,11 +758,11 @@ static int esp8266_send(struct net_pkt *pkt,
 	}
 
 ret_early:
+	net_pkt_unref(pkt);
 	if (cb) {
 		cb(context, ret, token, user_data);
 	}
 
-	net_pkt_unref(pkt);
 	return ret;
 }
 
@@ -746,16 +801,27 @@ static int esp8266_put(struct net_context *context)
 	return 0;
 }
 
-static int esp8266_sendto(struct net_pkt *pkt,
-		const struct sockaddr *dst_addr,
-		socklen_t addrlen,
+static int esp8266_send(struct net_pkt *pkt,
 		net_context_send_cb_t cb,
 		s32_t timeout,
 		void *token,
 		void *user_data)
 {
+	struct net_context *context = net_pkt_context(pkt);
+	socklen_t addrlen;
 
-	return 0;
+	addrlen = 0;
+#if defined(CONFIG_NET_IPV4)
+	if (net_pkt_family(pkt) == AF_INET) {
+		addrlen = sizeof(struct sockaddr_in);
+	} else
+#endif /* CONFIG_NET_IPV4 */
+	{
+		return -EPFNOSUPPORT;
+	}
+
+	return esp8266_sendto(pkt, &context->remote, addrlen, cb,
+			      timeout, token, user_data);
 }
 
 static int esp8266_recv(struct net_context *context,
@@ -842,18 +908,6 @@ static int esp8266_mgmt_connect(struct device *dev,
 	return 0;
 }
 
-static void esp8266_get_mac_addr(void)
-{
-	int ret;
-
-	ret = send_at_cmd(NULL, "AT+CIPAPMAC_CUR?", MDM_CMD_TIMEOUT);
-	if (ret < 0) {
-		SYS_LOG_ERR("failed to query mac address\n");
-		return;
-	}
-}
-
-
 static int esp8266_mgmt_disconnect(struct device *dev)
 {
 	int ret;
@@ -861,7 +915,7 @@ static int esp8266_mgmt_disconnect(struct device *dev)
 	ret = send_at_cmd(NULL, "AT+CWQAP", MDM_CMD_TIMEOUT);
 	if (ret < 0) {
 		SYS_LOG_ERR("failed to query mac address\n");
-		return;
+		return -EFAULT;
 	}
 
 	return 0;
@@ -898,10 +952,12 @@ static void esp8266_read_rx(struct net_buf **buf)
 
 	/* read all of the data from mdm_receiver */
 	while (true) {
+//		k_mutex_lock(&dev_mutex, K_FOREVER);
 		ret = mdm_receiver_recv(&foo_data.mdm_ctx,
 					uart_buffer,
 					sizeof(uart_buffer),
 					&bytes_read);
+//		k_mutex_unlock(&dev_mutex);
 		if (ret < 0) {
 			/* mdm_receiver buffer is empty */
 			break;
@@ -943,6 +999,7 @@ static void net_buf_skipcrlf(struct net_buf **buf)
 {
 	/* chop off any /n or /r */
 	while (*buf && is_crlf(*(*buf)->data)) {
+		//printk("s\n");
 		net_buf_pull_u8(*buf);
 		if (!(*buf)->len) {
 			*buf = net_buf_frag_del(NULL, *buf);
@@ -1070,12 +1127,33 @@ static int net_pkt_setup_ip_data(struct net_pkt *pkt,
 	return hdr_len;
 }
 
+#if 0
+static void print_5_chars(struct net_buf *buf)
+{
+	int i, offset;
+	struct net_buf *frag = buf;
+			i = 0;
+			offset = 0;
+			while((i < 5) && frag && frag->len) {
+				printk("%02x", *(frag->data + offset));
+				offset++;
+				if (offset > frag->len){
+					offset = 0;
+					frag = frag->frags;
+				}
+				i++;
+			}
+			printk("\n");
+
+}
+#endif
+
 static void esp8266_read_data(struct net_buf **buf)
 {
 	struct net_buf *frag;
 	struct net_buf *inc = *buf;
 	struct socket_data *sock = &foo_data.socket_data[foo_data.data_id];
-	int pos;
+	u16_t pos;
 	int bytes_left = foo_data.data_len;
 	int hdr_len;
 
@@ -1148,41 +1226,142 @@ static void esp8266_read_data(struct net_buf **buf)
 	}
 
 fail:
-	k_work_submit_to_queue(&esp8266_workq, &sock->recv_cb_work);
+//	k_work_submit_to_queue(&esp8266_workq, &sock->recv_cb_work);
 
+	/* return data */
+	if (sock->recv_cb) {
+		//printk("do callback\n");
+		if (sock->read_error) {
+			sock->recv_cb(sock->context, NULL, sock->read_error, sock->recv_user_data);
+		} else {
+			sock->recv_cb(sock->context, sock->rx_pkt, 0, sock->recv_user_data);
+		}
+		//printk("back from callback\n");
+	} else {
+		if (sock->rx_pkt) {
+			net_pkt_unref(sock->rx_pkt);
+		}
+	}
+
+	sock->rx_pkt = NULL;
+//	printk("skipping past read data - %d\n", foo_data.data_len);
+	//printk("skipped %d of %d\n", foo_data.data_len,
+//net_buf_frags_len(*buf));
 	*buf = net_buf_skip(*buf, foo_data.data_len);
+//	print_5_chars(*buf);
 	foo_data.data_len = 0;
 }
 
-static void esp8266_process_setup_read(struct net_buf **buf, int end)
+static int match(struct net_buf *buf, const char *str)
 {
-	struct socket_data *sock;
-	struct net_buf *frag, *rbuf;
-	u8_t temp[32];
-	u16_t pos;
-	int d[6];
-	int i;
-	int slen;
-	int len = net_buf_frags_len(*buf);
-	int hdr_len;
+	struct net_buf *frag = buf;
+	int offset = 0, pos = 0;
 
+	while (frag && frag->len && *str) {
+		if (*(frag->data + offset) == *str) {
+			str++;
+			offset++;
+			pos++;
+			if (offset >= frag->len) {
+				frag = frag->frags;
+				offset = 0;
+			}
+		} else {
+			pos = -1;
+			break;
+		}
+	}
+
+	return pos;
+}
+
+static int esp8266_process_setup_read(struct net_buf **buf)
+{
+	struct net_buf *frag;
+	u8_t temp[32];
+	int hdr_len;
+	int offset;
+	char *colon;
+	char *comma;
+	int found;
+	int end;
+
+	frag = *buf;
+	end = 0;
+	offset = 0;
+	found = -1;
+	while (frag) {
+		temp[end] = *(frag->data + offset);
+		if (temp[end] == ':'){
+			found = end;
+			break;
+		}
+
+		end++;
+		offset++;
+		if (offset >= frag->len) {
+			frag = frag->frags;
+			offset = 0;
+			if (!frag) {
+				break;
+			}
+		}
+	}
+
+	if (found < 0)
+		return found;
+
+	temp[found+1] = '\0';
+	hdr_len = found+1;
+//	printk("command = %s\n", temp);
+	colon = strtok(temp, ":");
+//	if (!colon)
+//		return 1;
+
+	comma = strtok(colon, ",");
+//	while(comma) {
+//	printk("cmd = %s\n", comma);
+	comma = strtok(NULL, ",");
+//	printk("id = %s\n", comma);
+	foo_data.data_id = atoi(comma);
+	comma = strtok(NULL, ",");
+//	printk("len = %s\n", comma);
+	foo_data.data_len = atoi(comma);
+//	}
+//	end = net_buf_find_next_delimiter(*buf, ':', 0);
+
+//	if (end < 0)
+//		return 1;
+
+#if 0
 	d[0] = net_buf_find_next_delimiter(*buf, ',', 0);
 	d[1] = net_buf_find_next_delimiter(*buf, ',', d[0] + 1);
-	d[2] = net_buf_find_next_delimiter(*buf, ',', d[1] + 1);
 
 	slen = d[1] - d[0] - 1;
-	net_buf_linearize(temp, 32, *buf, d[0] + 1, slen);
+	if (net_buf_linearize(temp, 32, *buf, d[0] + 1, slen) < 0) {
+		printk("bad id\n");
+		return 1;
+	}
 	temp[slen] = '\0';
 	foo_data.data_id = strtoul(temp, NULL, 10);
 
 	slen = end - d[1] - 1;
-	net_buf_linearize(temp, 32, *buf, d[1] + 1, slen);
+	if (net_buf_linearize(temp, 32, *buf, d[1] + 1, slen) < 0) {
+		printk("bad len\n");
+		return 1;
+	}
 	temp[slen] = '\0';
 	foo_data.data_len = strtoul(temp, NULL, 10);
-	*buf = net_buf_skip(*buf, end + 1);
+	//printk("buf->%d\n", end+1);
+	if (net_buf_linearize(temp, 32, *buf, 0, end) < 0)
+		printk("bad slen\n");
+	temp[end+2] = '\0';
+#endif
+	*buf = net_buf_skip(*buf, hdr_len);
 
-	SYS_LOG_INF("MATCH +IPD (len:%u)\n", foo_data.data_len + end + 1);
-	return;
+//	printk("MATCH +IPD (len:%u)\n", foo_data.data_len);
+//	printk("%s-\n", temp);
+	return 0;
 }
 
 static void sockreadrecv_cb_work(struct k_work *work)
@@ -1192,6 +1371,7 @@ static void sockreadrecv_cb_work(struct k_work *work)
 
 	sock = CONTAINER_OF(work, struct socket_data, recv_cb_work);
 
+//	printk("%s: %p\n",__func__, sock->rx_pkt);
 	/* return data */
 	pkt = sock->rx_pkt;
 	sock->rx_pkt = NULL;
@@ -1200,12 +1380,14 @@ static void sockreadrecv_cb_work(struct k_work *work)
 			if (pkt) {
 				net_pkt_unref(pkt);
 			}
+//			printk("throwing away response\n");
 			sock->recv_cb(sock->context, NULL, sock->read_error, sock->recv_user_data);
 		} else {
 			sock->recv_cb(sock->context, pkt, 0, sock->recv_user_data);
 		}
 #if 1
 	} else {
+//		printk("throwing away response\n");
 		net_pkt_unref(pkt);
 	}
 #endif
@@ -1258,6 +1440,7 @@ static void esp8266_rx(void)
 		CMD_HANDLER("2,CLOSED", conn_closed),
 		CMD_HANDLER("3,CLOSED", conn_closed),
 		CMD_HANDLER("4,CLOSED", conn_closed),
+		CMD_HANDLER("Recv ", sent_bytes),
 	};
 
 	while (true) {
@@ -1271,8 +1454,13 @@ static void esp8266_rx(void)
 				if (net_buf_frags_len(rx_buf) >=
 					foo_data.data_len) {
 					esp8266_read_data(&rx_buf);
+
+					if (!rx_buf) {
+						break;
+					}
+					continue;
 				} else {
-					break;
+						break;
 				}
 			}
 
@@ -1281,18 +1469,18 @@ static void esp8266_rx(void)
 				break;
 			}
 
+
 			/* check for incoming IPD data */
-			if (net_buf_ncmp(rx_buf, "+IPD,", 5) == 0) {
-				i = net_buf_find_next_delimiter(rx_buf, ':',
-					0);
-				if (i < 0) {
+			if (match(rx_buf, "+IPD") >= 0) {
+				if (esp8266_process_setup_read(&rx_buf) < 0) {
 					break;
 				}
 
-				esp8266_process_setup_read(&rx_buf, i);
 				if (!rx_buf) {
 					break;
 				}
+
+				continue;
 			}
 
 			frag = NULL;
@@ -1304,8 +1492,8 @@ static void esp8266_rx(void)
 			/* look for matching data handlers */
 			i = -1;
 			for (i = 0; i < ARRAY_SIZE(handlers); i++) {
-				if (net_buf_ncmp(rx_buf, handlers[i].cmd,
-						 handlers[i].cmd_len) == 0) {
+				if (match(rx_buf, handlers[i].cmd) >= 0) {
+
 					/* found a matching handler */
 					SYS_LOG_INF("MATCH %s (len:%u)\n",
 						    handlers[i].cmd, len);
@@ -1342,6 +1530,7 @@ static void esp8266_rx(void)
 			}
 
 			if (frag && rx_buf) {
+//				printk("cleared out buf\n");
 				/* clear out processed line (buffers) */
 				while (frag && rx_buf != frag) {
 					rx_buf = net_buf_frag_del(NULL, rx_buf);
@@ -1425,6 +1614,11 @@ static void esp8266_reset_work(struct k_work *work)
 	}
 
 	ret = send_at_cmd(NULL, "AT+CWQAP", MDM_CMD_TIMEOUT);
+	if (ret < 0) {
+		SYS_LOG_ERR("failed to set multiple socket support\n");
+		return;
+	}
+	ret = send_at_cmd(NULL, "AT+CWMODE_CUR=3", MDM_CMD_TIMEOUT);
 	if (ret < 0) {
 		SYS_LOG_ERR("failed to set multiple socket support\n");
 		return;
