@@ -17,6 +17,7 @@
 
 #include <net/sntp.h>
 #include <net/net_config.h>
+#include <net/net_event.h>
 
 /* This comes from newlib. */
 #include <time.h>
@@ -28,6 +29,8 @@
 #else
 # define PRINT printk
 #endif
+
+#include "net/wifi_mgmt.h"
 
 struct k_sem sem;
 
@@ -117,6 +120,114 @@ void sntp(const char *ip)
 	SYS_LOG_INF("done");
 }
 
+#if defined (CONFIG_WIFI_ESP8266)
+static struct net_mgmt_event_callback wifi_mgmt_cb;
+static struct net_mgmt_event_callback dhcp_mgmt_cb;
+static K_SEM_DEFINE(sem_comm, 0, 1);
+static K_SEM_DEFINE(sem_ip, 0, 1);
+
+static void handle_wifi_connect_result(struct net_mgmt_event_callback *cb,
+	struct net_if *iface)
+{
+	const struct wifi_status *status =
+			(const struct wifi_status *) cb->info;
+
+	if (status->status) {
+		printk("\nConnection request failed (%d)\n", status->status);
+	} else {
+		printk("\nConnected\n");
+	}
+}
+
+static void dhcp_event_handler(struct net_mgmt_event_callback *cb,
+                                   u32_t mgmt_event, struct net_if *iface)
+{
+	switch (mgmt_event) {
+	case NET_EVENT_IPV4_ADDR_ADD:
+		k_sem_give(&sem_ip);
+		break;
+	default:
+		break;
+	}
+}
+
+static void wifi_mgmt_event_handler(struct net_mgmt_event_callback *cb,
+	u32_t mgmt_event, struct net_if *iface)
+{
+	switch (mgmt_event) {
+	case NET_EVENT_WIFI_CONNECT_RESULT:
+		handle_wifi_connect_result(cb, iface);
+		k_sem_give(&sem_comm);
+		break;
+	default:
+		break;
+	}
+}
+
+static const char ssid[] = "ATT8QEU2Fm";
+static const char psk[] = "2142079019";
+
+void start_esp8266(void)
+{
+	struct net_if *iface = net_if_get_default();
+	static struct wifi_connect_req_params esp8266_params;
+	char buf[NET_IPV4_ADDR_LEN];
+
+	net_mgmt_init_event_callback(&wifi_mgmt_cb,
+		wifi_mgmt_event_handler,
+		NET_EVENT_WIFI_CONNECT_RESULT |
+		NET_EVENT_WIFI_DISCONNECT_RESULT);
+
+	net_mgmt_add_event_callback(&wifi_mgmt_cb);
+
+	net_mgmt_init_event_callback(&dhcp_mgmt_cb, dhcp_event_handler,
+		NET_EVENT_IPV4_ADDR_ADD);
+	net_mgmt_add_event_callback(&dhcp_mgmt_cb);
+
+	esp8266_params.ssid = ssid;
+	esp8266_params.ssid_length = strlen(ssid);
+	esp8266_params.psk = psk;
+	esp8266_params.psk_length = strlen(psk);
+	esp8266_params.security = WIFI_SECURITY_TYPE_PSK;
+
+	net_mgmt(NET_REQUEST_WIFI_DISCONNECT, iface, NULL, NULL);
+
+	printk("%p is your iface\n", iface);
+	if (net_mgmt(NET_REQUEST_WIFI_CONNECT, iface, &esp8266_params,
+		sizeof(struct wifi_connect_req_params))) {
+		printk("Connection request failed\n");
+		return;
+	}
+
+	if (k_sem_take(&sem_comm, 10000)) {
+		printk("timeout out connecting to AP: %s\n",
+		esp8266_params.ssid);
+		return;
+	}
+
+	if (k_sem_take(&sem_ip, 10000)) {
+		printk("timeout out waiting for ip address\n");
+		return;
+	}
+
+	printk("DHCP address from ESP8266:\n");
+	printk("ip: %s\n",
+		net_addr_ntop(AF_INET,
+		&iface->config.ip.ipv4->unicast[0].address.in_addr,
+		buf, sizeof(buf)));
+	printk("gw: %s\n",
+		net_addr_ntop(AF_INET,
+		&iface->config.ip.ipv4->gw,
+		buf, sizeof(buf)));
+	printk("netmask: %s\n",
+		net_addr_ntop(AF_INET,
+		&iface->config.ip.ipv4->netmask,
+		buf, sizeof(buf)));
+}
+#endif
+
+
+
 /*
  * TODO: These need to be configurable.
  */
@@ -161,8 +272,14 @@ void main(void)
 	int res;
 
 	SYS_LOG_INF("Main entered");
-	 app_dhcpv4_startup();
-	// net_app_init(NULL, NET_CONFIG_NEED_IPV4, 30 * 1000);
+
+#if defined(CONFIG_WIFI_OFFLOAD)
+	k_sleep(5000);
+	start_esp8266();
+#else
+	app_dhcpv4_startup();
+#endif
+
 	SYS_LOG_INF("Should have DHCPv4 lease at this point.");
 
 	res = ipv4_lookup("time.google.com", time_ip, sizeof(time_ip));
