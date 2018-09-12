@@ -64,10 +64,11 @@ User push buttons
 =================
 
 The v2m_musca board provides the following user push buttons:
-• PBON power on/off.
-• nSRST: Cortex-M33 system reset and CoreSight debug reset.
-• ISP: Updates DAPLink firmware.
-• HWRST: Resets DAPLink.
+
+- PBON power on/off.
+- nSRST: Cortex-M33 system reset and CoreSight debug reset.
+- ISP: Updates DAPLink firmware.
+- HWRST: Resets DAPLink.
 
 
 Supported Features
@@ -98,11 +99,8 @@ Other hardware features are not currently supported by the port.
 See the `V2M Musca Website`_ for a complete list of V2M Musca board hardware
 features.
 
-The default configuration can be found in the defconfig file:
-
-.. code-block:: console
-
-   boards/arm/v2m_musca/v2m_musca_defconfig
+he default configuration can be found in the defconfig file:
+``boards/arm/v2m_musca/v2m_musca_defconfig``.
 
 Interrupt Controller
 ====================
@@ -112,32 +110,38 @@ Musca is a Cortex-M33 based SoC and has 15 fixed exceptions and 77 IRQs.
 A Cortex-M33-based board uses vectored exceptions. This means each exception
 calls a handler directly from the vector table.
 
-Handlers are provided for exceptions 1-7, 11-12, and 14-15. The table here
-identifies the handlers used for each exception.
+Zephyr provides handlers for exceptions 1-7, 11, 12, 14, and 15, as listed
+in the following table:
 
 +------+------------+----------------+--------------------------+
 | Exc# | Name       | Remarks        | Used by Zephyr Kernel    |
 +======+============+================+==========================+
-| 1    | Reset      |                | system initialization    |
+|  1   | Reset      |                | system initialization    |
 +------+------------+----------------+--------------------------+
-| 2    | NMI        |                | system fatal error       |
+|  2   | NMI        |                | system fatal error       |
 +------+------------+----------------+--------------------------+
-| 3    | Hard fault |                | system fatal error       |
+|  3   | Hard fault |                | system fatal error       |
 +------+------------+----------------+--------------------------+
-| 4    | MemManage  | MPU fault      | system fatal error       |
+|  4   | MemManage  | MPU fault      | system fatal error       |
 +------+------------+----------------+--------------------------+
-| 5    | Bus        |                | system fatal error       |
+|  5   | Bus        |                | system fatal error       |
 +------+------------+----------------+--------------------------+
-| 6    | Usage      | undefined      | system fatal error       |
+|  6   | Usage      | Undefined      | system fatal error       |
 |      | fault      | instruction,   |                          |
 |      |            | or switch      |                          |
 |      |            | attempt to ARM |                          |
 |      |            | mode           |                          |
 +------+------------+----------------+--------------------------+
-|  7   |SecureFault | Unauthorised   |    system fatal error    |
+|  7   |SecureFault | Unauthorized   | system fatal error       |
 |      |            | access to      |                          |
 |      |            | secure region  |                          |
 |      |            | from ns space  |                          |
++------+------------+----------------+--------------------------+
+|  8   | Reserved   |                | not handled              |
++------+------------+----------------+--------------------------+
+|  9   | Reserved   |                | not handled              |
++------+------------+----------------+--------------------------+
+| 10   | Reserved   |                | not handled              |
 +------+------------+----------------+--------------------------+
 | 11   | SVC        |                | context switch and       |
 |      |            |                | software interrupts      |
@@ -145,9 +149,17 @@ identifies the handlers used for each exception.
 | 12   | Debug      |                | system fatal error       |
 |      | monitor    |                |                          |
 +------+------------+----------------+--------------------------+
+| 13   | Reserved   |                | not handled              |
++------+------------+----------------+--------------------------+
 | 14   | PendSV     |                | context switch           |
 +------+------------+----------------+--------------------------+
 | 15   | SYSTICK    |                | system clock             |
++------+------------+----------------+--------------------------+
+| 16   | Reserved   |                | not handled              |
++------+------------+----------------+--------------------------+
+| 17   | Reserved   |                | not handled              |
++------+------------+----------------+--------------------------+
+| 18   | Reserved   |                | not handled              |
 +------+------------+----------------+--------------------------+
 
 Pin Mapping
@@ -228,12 +240,12 @@ RGB LED
 ============
 
 Musca has a built-in RGB LED connected to GPIO[4:2] pins.
+
 - Red LED connected at GPIO[2] pin,with optional PWM0.
 - Green LED connected at GPIO[3] pin,with optional PWM0.
 - Blue LED connected at GPIO[4] pin,with optional PWM0.
 
-Note
-The SCC registers select the functions of pins GPIO[4:2].
+.. note:: The SCC registers select the functions of pins GPIO[4:2].
 
 System Clock
 ============
@@ -241,30 +253,33 @@ System Clock
 V2M Musca has a 32.768kHz crystal clock. The clock goes to a PLL and is
 multiplied to drive the Cortex-M33 processors and SSE-200 subsystem. The
 default is 50MHz but can be increased to 170MHz maximum for the secondary
-processor (CPU1). The maximum clock frequency for the primary processor
-(CPU0) is 50MHz.
+processor (CPU1) via software configuration. The maximum clock frequency
+for the primary processor (CPU0) is 50MHz.
 
 Serial Port
 ===========
 
 The ARM Musca processor has two UARTs. Both the UARTs have only two wires for
 RX/TX and no flow control (CTS/RTS) or FIFO. The Zephyr console output, by
-default, is utilizing UART1.
+default, is using UART1.
 
 Security components
 ===================
 
-- Implementation Defined Attribution Unit (IDAU).
-- Secure and Non-secure configurable peripherals and memory access.
+- Implementation Defined Attribution Unit (IDAU).  The IDAU is used to define
+  secure and non-secure memory maps.  By default, all of the memory space is
+  defined to be secure accessible only.
+- Secure and Non-secure peripherals via the Peripheral Protection Controller
+  (PPC).  Peripherals can be assigned as secure or non-secure accessible.
 - Secure boot.
 - Secure AMBA® interconnect
 
 Serial Configuration Controller (SCC)
 =====================================
 
-The ARM Musca test chip implements Serial Configuration Control (SCC) register.
-The purpose of this register is to allow individual control of clocks,
-reset-signals and interrupts to peripherals,as well as pin-muxing.
+The ARM Musca test chip implements a Serial Configuration Control (SCC)
+register. The purpose of this register is to allow individual control of
+clocks, reset-signals and interrupts to peripherals, and pin-muxing.
 
 QSPI boot memory
 ================
@@ -278,9 +293,9 @@ Programming and Debugging
 Musca supports the v8m security extension, and by default boots to the secure
 state.
 
-When building a secure(S)/non-secure(NS application, the S one will
-have to set the idau/sau and mpc configuration to permit access from the NS,
-before jumping.
+When building a secure/non-secure application, the secure application will
+have to set the idau/sau and mpc configuration to permit access from the
+non-secure application before jumping.
 
 The following system components are required to be properly configured during the
 secure firmware:
@@ -312,7 +327,7 @@ This interfaces are exposed via DAPLink which provides:
 - Remote reset.
 
 For more details please refer
-to `DAPLink Website`_.
+to the `DAPLink Website`_.
 
 
 Building a secure only application
@@ -322,13 +337,24 @@ Building a secure only application
 You can build applications in the usual way. Here is an example for
 the :ref:`hello_world` application.
 
+.. zephyr-app-commands::
+   :zephyr-app: samples/hello_world
+   :board: v2m_musca
+   :goals: build
 
-Building a secure/non-secure with Zephyr on both sides
-------------------------------------------------------
+Open a serial terminal (minicom, putty, etc.) with the following settings:
 
-The process is similar to before, with the added configuration of setting-up
-the secure/non-secure configuration entry on zephyr.
+- Speed: 115200
+- Data: 8 bits
+- Parity: None
+- Stop bits: 1
 
+Reset the board and you should be able to see on the corresponding Serial Port
+the following message:
+
+.. code-block:: console
+
+   Hello World! arm
 
 Building a secure/non-secure with Trusted Firmware
 --------------------------------------------------
@@ -359,11 +385,11 @@ Build the Zephyr app in the usual way.
 Uploading an application to V2M Musca
 -------------------------------------
 
-In order to flash an application to V2M Musca, it needs to be converted to
-Intel's hex format. An optional bootloader can be prepended to the image.
+Applications must be converted to Intel's hex format before being flashed to a
+V2M Musca. An optional bootloader can be prepended to the image.
 The QSPI flash base address alias is 0x200000.
 
-The image off-set is calculated by adding the flash off-set to the
+The image offset is calculated by adding the flash offset to the
 bootloader partition size.
 
 A third-party tool (srecord) is used to generate the Intel formatted hex image. For more information
@@ -379,11 +405,12 @@ refer to the `Srecord Manual`_.
    # For a 256K bootloader IMAGE_OFFSET = $QSPI_FLASH_OFFSET + 0x40000
    srec_cat $BIN_BOOLOADER -Binary -offset 0x200000 $BIN_SNS -Binary -offset 0x240000 -o $HEX_FLASHABLE -Intel
 
-Connect the V2M Musca to your host computer using the USB port and you should
-see a USB connection which exposes a Mass Storage (MBED) and a USB Serial Port.
-Copy the generated zephyr.hex in the MBED drive.
-Reset the board and you should be able to see on the corresponding Serial Port
-the following message:
+Connect the V2M Musca to your host computer using the USB port. You should
+see a USB connection exposing a Mass Storage (MBED) and a USB Serial Port.
+Copy the generated ``zephyr.hex`` in the MBED drive.
+
+Reset the board, and you should see the following message on the corresponding
+serial port:
 
 .. code-block:: console
 
