@@ -14,11 +14,6 @@
 /* Put AES tables in ROM to save RAM. */
 #define MBEDTLS_AES_ROM_TABLES
 
-/* Use to enable heap debug */
-// #define MBEDTLS_MEMORY_DEBUG
-// #define MBEDTLS_PLATFORM_FPRINTF_MACRO      debug_printf
-// #define debug_printf(x, ...) printk(__VA_ARGS__)
-
 /* System support */
 #define MBEDTLS_PLATFORM_C
 #define MBEDTLS_PLATFORM_MEMORY
@@ -32,7 +27,6 @@
 #define MBEDTLS_HAVE_TIME
 #define MBEDTLS_HAVE_TIME_DATE
 #define MBEDTLS_PLATFORM_TIME_ALT
-// #define MBEDTLS_PLATFORM_STD_TIME k_time
 
 #if !defined(CONFIG_ARM)
 #define MBEDTLS_HAVE_ASM
@@ -45,7 +39,6 @@
 #define MBEDTLS_ENTROPY_C
 #endif
 
-#define MBEDTLS_DEBUG_C
 
 /* mbed TLS feature support */
 #define MBEDTLS_CIPHER_MODE_CBC
