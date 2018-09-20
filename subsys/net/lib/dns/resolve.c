@@ -210,6 +210,7 @@ int dns_resolve_init(struct dns_resolve_context *ctx, const char *servers[],
 
 	memset(ctx, 0, sizeof(*ctx));
 
+	printk("%s\n", __func__);
 	if (servers) {
 		for (i = 0; idx < SERVER_COUNT && servers[i]; i++) {
 			struct sockaddr *addr = &ctx->servers[idx].dns_server;
@@ -224,7 +225,7 @@ int dns_resolve_init(struct dns_resolve_context *ctx, const char *servers[],
 
 			dns_postprocess_server(ctx, idx);
 
-			NET_DBG("[%d] %s", i, servers[i]);
+			printk("[%d] %s", i, servers[i]);
 
 			idx++;
 		}
@@ -269,14 +270,14 @@ int dns_resolve_init(struct dns_resolve_context *ctx, const char *servers[],
 				      SOCK_DGRAM, IPPROTO_UDP,
 				      &ctx->servers[i].net_ctx);
 		if (ret < 0) {
-			NET_DBG("Cannot get net_context (%d)", ret);
+			printk("Cannot get net_context (%d)", ret);
 			return ret;
 		}
 
 		ret = net_context_bind(ctx->servers[i].net_ctx,
 				       local_addr, addr_len);
 		if (ret < 0) {
-			NET_DBG("Cannot bind DNS context (%d)", ret);
+			printk("Cannot bind DNS context (%d)", ret);
 			return ret;
 		}
 
@@ -285,7 +286,7 @@ int dns_resolve_init(struct dns_resolve_context *ctx, const char *servers[],
 
 	if (count == 0) {
 		/* No servers defined */
-		NET_DBG("No DNS servers defined.");
+		printk("No DNS servers defined.");
 		return -EINVAL;
 	}
 
@@ -342,6 +343,7 @@ static int dns_read(struct dns_resolve_context *ctx,
 	int ret;
 	int server_idx, query_idx;
 
+	printk("%s\n", __func__);
 	data_len = min(net_pkt_appdatalen(pkt), DNS_RESOLVER_MAX_BUF_SIZE);
 	offset = net_pkt_get_len(pkt) - data_len;
 
@@ -525,6 +527,7 @@ static void cb_recv(struct net_context *net_ctx,
 
 	ARG_UNUSED(net_ctx);
 
+	printk("%s\n", __func__);
 	if (status) {
 		ret = DNS_EAI_SYSTEM;
 		goto quit;
@@ -622,6 +625,7 @@ static int dns_write(struct dns_resolve_context *ctx,
 	u16_t dns_id;
 	int ret;
 
+	printk("%s\n", __func__);
 	net_ctx = ctx->servers[server_idx].net_ctx;
 	server = &ctx->servers[server_idx].dns_server;
 	dns_id = ctx->queries[query_idx].id;
@@ -663,6 +667,7 @@ static int dns_write(struct dns_resolve_context *ctx,
 		goto quit;
 	}
 
+	printk("etting revc\n");
 	ret = net_context_recv(net_ctx, cb_recv, K_NO_WAIT, ctx);
 	if (ret < 0 && ret != -EALREADY) {
 		NET_DBG("Could not receive from socket (%d)", ret);
@@ -676,6 +681,8 @@ static int dns_write(struct dns_resolve_context *ctx,
 		server_addr_len = sizeof(struct sockaddr_in6);
 	}
 
+	printk("%d is the port\n", net_sin(server)->sin_port);
+	printk("setting sendto\n");
 	ret = net_context_sendto(pkt, server, server_addr_len, NULL,
 				 K_NO_WAIT, NULL, NULL);
 	if (ret < 0) {
@@ -756,6 +763,7 @@ int dns_resolve_name(struct dns_resolve_context *ctx,
 		return -EINVAL;
 	}
 
+	printk("%s\n", __func__);
 	/* Timeout cannot be 0 as we cannot resolve name that fast.
 	 */
 	if (timeout == K_NO_WAIT) {
@@ -880,6 +888,7 @@ try_resolve:
 			hop_limit = 1;
 		}
 
+		printk("wrote dns query\n");
 		ret = dns_write(ctx, j, i, dns_data, dns_qname, hop_limit);
 		if (ret < 0) {
 			failure++;
@@ -960,7 +969,7 @@ void dns_init_resolver(void)
 #if defined(CONFIG_DNS_SERVER_IP_ADDRESSES)
 	static const char *dns_servers[SERVER_COUNT + 1];
 	int count = DNS_SERVER_COUNT;
-	int ret;
+	int ret = 0;
 
 	if (count > 5) {
 		count = 5;
@@ -1027,7 +1036,7 @@ void dns_init_resolver(void)
 
 	dns_servers[SERVER_COUNT] = NULL;
 
-	ret = dns_resolve_init(dns_resolve_get_default(), dns_servers, NULL);
+//	ret = dns_resolve_init(dns_resolve_get_default(), dns_servers, NULL);
 	if (ret < 0) {
 		NET_WARN("Cannot initialize DNS resolver (%d)", ret);
 	}
