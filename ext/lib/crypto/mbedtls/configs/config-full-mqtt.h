@@ -11,6 +11,14 @@
 #ifndef MBEDTLS_CONFIG_H
 #define MBEDTLS_CONFIG_H
 
+/* Put AES tables in ROM to save RAM. */
+#define MBEDTLS_AES_ROM_TABLES
+
+/* Use to enable heap debug */
+// #define MBEDTLS_MEMORY_DEBUG
+// #define MBEDTLS_PLATFORM_FPRINTF_MACRO      debug_printf
+// #define debug_printf(x, ...) printk(__VA_ARGS__)
+
 /* System support */
 #define MBEDTLS_PLATFORM_C
 #define MBEDTLS_PLATFORM_MEMORY
