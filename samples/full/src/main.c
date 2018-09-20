@@ -164,8 +164,8 @@ static void wifi_mgmt_event_handler(struct net_mgmt_event_callback *cb,
 	}
 }
 
-static const char ssid[] = "ATT8QEU2Fm";
-static const char psk[] = "2142079019";
+static const char ssid[] = "linaro-connect";
+static const char psk[] = "LC0nN3c7";
 
 void start_esp8266(void)
 {
@@ -192,7 +192,6 @@ void start_esp8266(void)
 
 	net_mgmt(NET_REQUEST_WIFI_DISCONNECT, iface, NULL, NULL);
 
-	printk("%p is your iface\n", iface);
 	if (net_mgmt(NET_REQUEST_WIFI_CONNECT, iface, &esp8266_params,
 		sizeof(struct wifi_connect_req_params))) {
 		printk("Connection request failed\n");

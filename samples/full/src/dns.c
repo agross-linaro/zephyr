@@ -93,12 +93,19 @@ void dns_result_cb(enum dns_resolve_status status,
 						      ctx->name, ctx->name_len));
 }
 
+static const char foo[] = "8.8.8.8";
 /* Returns 0 on success, or some kind of error otherwise. */
 int ipv4_lookup(const char *host, char *ip, size_t ip_len)
 {
 	u16_t dns_id;
 	int ret;
 	struct dns_ctx context;
+       struct dns_resolve_context *dns_ctx;
+       static const char *server[2];
+       server[0] = foo;
+       server[1] = NULL;
+       dns_ctx = dns_resolve_get_default();
+       dns_resolve_init(dns_ctx, server, NULL);
 
 	context.name = ip;
 	context.name_len = ip_len;
