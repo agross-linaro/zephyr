@@ -124,6 +124,10 @@ void sntp(const char *ip)
 
 static void show_addrinfo(struct zsock_addrinfo *addr)
 {
+        char hr_addr[NET_IPV6_ADDR_LEN];
+        char *hr_family;
+        void *a;
+
 top:
 	SYS_LOG_INF("  flags   : %d", addr->ai_flags);
 	SYS_LOG_INF("  family  : %d", addr->ai_family);
@@ -139,6 +143,12 @@ top:
 		addr = addr->ai_next;
 		goto top;
 	}
+        a = &net_sin(&addr->ai_addr)->sin_addr;
+
+        SYS_LOG_ERR("%s",
+                log_strdup(net_addr_ntop(addr->ai_family, a,
+                                         hr_addr, sizeof(hr_addr))));
+
 }
 
 /*
@@ -158,6 +168,7 @@ void main(void)
 	static struct zsock_addrinfo hints;
 	struct zsock_addrinfo *haddr;
 	int res;
+	int cnt = 0;
 
 	SYS_LOG_INF("Main entered");
 
@@ -214,15 +225,18 @@ void main(void)
 	hints.ai_family = AF_INET;
 	hints.ai_socktype = SOCK_STREAM;
 	hints.ai_protocol = 0;
-	res = getaddrinfo("mqtt.googleapis.com", "8883", &hints, &haddr);
+	while ((res = getaddrinfo("mqtt.googleapis.com", "8883", &hints,
+				  &haddr)) && cnt < 3) {
+		SYS_LOG_ERR("Unable to get address, retrying");
+		cnt++;
+	}
 
 	if (res != 0) {
 		SYS_LOG_ERR("Unable to get address, exiting with error %d", res);
-		return;
+		return res;
 	}
 	show_addrinfo(haddr);
 
 
-	tls_client("mqtt.googleapis.com", haddr, 8883);
-	mqtt_startup();
+	mqtt_startup("mqtt.googleapis.com", haddr, 8833);
 }

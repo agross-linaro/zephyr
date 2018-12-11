@@ -15,8 +15,9 @@
 #include <jwt.h>
 #include <entropy.h>
 
-#include "mqtt.h"
 #include "pdump.h"
+#include <net/tls_credentials.h>
+#include <net/mqtt.h>
 
 #include <mbedtls/platform.h>
 #include <mbedtls/net.h>
@@ -63,6 +64,8 @@ static const char client_id[] = CONFIG_CLOUD_CLIENT_ID;
 static const char *subs[] = {
 	CONFIG_CLOUD_SUBSCRIBE_CONFIG,
 };
+
+#if 0
 
 /*
  * Determine the length of an MQTT packet.
@@ -518,6 +521,7 @@ void tls_client(const char *hostname, struct zsock_addrinfo *host, int port)
 	/*
 	 * 0. Initialize mbed TLS.
 	 */
+s
 	mbedtls_ctr_drbg_init(&ctr_drbg);
 	mbedtls_ssl_init(&the_ssl);
 	mbedtls_ssl_config_init(&the_conf);
@@ -810,4 +814,102 @@ void mqtt_startup(void)
 		}
 	}
 }
+#endif
 
+/* The mqtt client struct */
+static struct mqtt_client client_ctx;
+
+/* MQTT Broker details. */
+static struct sockaddr_storage broker;
+
+/* Buffers for MQTT client. */
+static u8_t rx_buffer[128];
+static u8_t tx_buffer[128];
+
+static sec_tag_t m_sec_tags[] = {
+#if defined(MBEDTLS_X509_CRT_PARSE_C)
+		1,
+#endif
+#if defined(MBEDTLS_KEY_EXCHANGE__SOME__PSK_ENABLED)
+		APP_PSK_TAG,
+#endif
+};
+
+void mqtt_evt_handler(struct mqtt_client *const client,
+		      const struct mqtt_evt *evt)
+{
+
+}
+
+void mqtt_startup(const char *hostname, struct zsock_addrinfo *host, int port)
+{
+	int err;
+	struct sockaddr_in *broker4 = (struct sockaddr_in *)&broker;
+	char foo[32];
+	struct mqtt_client *client = &client_ctx;
+
+printk("%s\n", __func__);
+#if defined(CONFIG_MQTT_LIB_TLS)
+	mbedtls_platform_set_time(k_time);
+
+#if defined(MBEDTLS_X509_CRT_PARSE_C)
+	err = tls_credential_add(1, TLS_CREDENTIAL_CA_CERTIFICATE,
+				 globalsign_certificate, sizeof(globalsign_certificate));
+	if (err < 0) {
+		SYS_LOG_ERR("Failed to register public certificate: %d", err);
+	}
+#endif
+#endif
+
+	mqtt_client_init(client);
+
+printk("after client init\n");
+
+	broker4->sin_family = AF_INET;
+	broker4->sin_port = htons(port);
+	net_ipaddr_copy(&broker4->sin_addr, &net_sin(host->ai_addr)->sin_addr);
+//	inet_pton(AF_INET, "206.181.100.64", &broker4->sin_addr);
+//	inet_pton(AF_INET, "64.181.233.206", &broker4->sin_addr);
+
+	/* MQTT client configuration */
+	client->broker = &broker;
+	client->evt_cb = mqtt_evt_handler;
+	client->client_id.utf8 = (u8_t *)client_id;
+	client->client_id.size = strlen(client_id);
+	client->password = NULL;
+	client->user_name = NULL;
+	client->protocol_version = MQTT_VERSION_3_1_1;
+
+	/* MQTT buffers configuration */
+	client->rx_buf = rx_buffer;
+	client->rx_buf_size = sizeof(rx_buffer);
+	client->tx_buf = tx_buffer;
+	client->tx_buf_size = sizeof(tx_buffer);
+
+	/* MQTT transport configuration */
+#if defined(CONFIG_MQTT_LIB_TLS)
+	client->transport.type = MQTT_TRANSPORT_SECURE;
+
+	struct mqtt_sec_config *tls_config = &client->transport.tls.config;
+
+	tls_config->peer_verify = 2;
+	tls_config->cipher_list = NULL;
+	tls_config->seg_tag_list = m_sec_tags;
+	tls_config->sec_tag_count = ARRAY_SIZE(m_sec_tags);
+#if defined(MBEDTLS_X509_CRT_PARSE_C)
+	tls_config->hostname = hostname;
+#else
+	tls_config->hostname = NULL;
+#endif
+
+#else
+	client->transport.type = MQTT_TRANSPORT_NON_SECURE;
+#endif
+
+	err = mqtt_connect(client);
+	if (err != 0) {
+		SYS_LOG_ERR("could not connect\n");
+	}
+
+	printk("got somewhere\n");
+}

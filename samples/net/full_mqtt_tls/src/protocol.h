@@ -13,7 +13,6 @@
 
 #include <net/socket.h>
 
-void tls_client(const char *hostname, struct zsock_addrinfo *host, int port);
-void mqtt_startup(void);
+void mqtt_startup(const char *hostname, struct zsock_addrinfo *host, int port);
 
 #endif
