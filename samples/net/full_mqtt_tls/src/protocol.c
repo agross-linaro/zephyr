@@ -870,6 +870,7 @@ printk("after client init\n");
 	net_ipaddr_copy(&broker4->sin_addr, &net_sin(host->ai_addr)->sin_addr);
 //	inet_pton(AF_INET, "206.181.100.64", &broker4->sin_addr);
 //	inet_pton(AF_INET, "64.181.233.206", &broker4->sin_addr);
+printk("client id %s\n", client_id);
 
 	/* MQTT client configuration */
 	client->broker = &broker;

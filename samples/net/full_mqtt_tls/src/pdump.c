@@ -22,6 +22,7 @@ pdump(const void *ibuffer, int length)
 	unsigned char *buffer = (unsigned char *)ibuffer;
 	int i;
 
+printk("%s\n", __func__);
 	offset = 0;
 
 	if (length == 0)
@@ -33,7 +34,7 @@ pdump(const void *ibuffer, int length)
 		if ((i & 15) == 0) {
 			if (i > 0) {
 				ascii[ascii_offset] = 0;
-				SYS_LOG_DBG("%-60s %s", line, ascii);
+				printk("%-60s %s\n", line, ascii);
 				offset = 0;
 				ascii_offset = 0;
 			}
@@ -46,6 +47,6 @@ pdump(const void *ibuffer, int length)
 		ascii[ascii_offset++] = PRINTABLE (buffer[i] & 0xFF);
 	}
 	ascii[ascii_offset] = 0;
-	SYS_LOG_DBG("%-60s %s", line, ascii);
+	printk("%-60s %s\n", line, ascii);
 	offset = 0;
 }

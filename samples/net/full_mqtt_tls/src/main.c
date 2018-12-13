@@ -238,5 +238,5 @@ void main(void)
 	show_addrinfo(haddr);
 
 
-	mqtt_startup("mqtt.googleapis.com", haddr, 8833);
+	mqtt_startup("mqtt.googleapis.com", haddr, 8883);
 }

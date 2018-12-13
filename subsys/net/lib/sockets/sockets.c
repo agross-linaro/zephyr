@@ -18,6 +18,7 @@ LOG_MODULE_REGISTER(net_sock, CONFIG_NET_SOCKETS_LOG_LEVEL);
 #include <syscall_handler.h>
 #include <misc/fdtable.h>
 
+
 #include "sockets_internal.h"
 
 #define SET_ERRNO(x) \
@@ -34,6 +35,48 @@ LOG_MODULE_REGISTER(net_sock, CONFIG_NET_SOCKETS_LOG_LEVEL);
 	} while (0)
 
 const struct socket_op_vtable sock_fd_op_vtable;
+
+#define PRINTABLE(x) (isprint(x) ? (x) : '.')
+
+#if 0
+void
+pdump(const void *ibuffer, int length)
+{
+	static char line[80];
+	static char ascii[18];
+	int offset = 0;
+	int ascii_offset = 0;
+	unsigned char *buffer = (unsigned char *)ibuffer;
+	int i;
+
+	offset = 0;
+
+	if (length == 0)
+		return;
+
+	ascii_offset = 0;
+
+	for (i = 0; i < length; i++) {
+		if ((i & 15) == 0) {
+			if (i > 0) {
+				ascii[ascii_offset] = 0;
+				SYS_LOG_DBG("%-60s %s", line, ascii);
+				offset = 0;
+				ascii_offset = 0;
+			}
+			offset += sprintf(line+offset, "%08x", i);
+		} else if ((i & 7) == 0) {
+			// offset += sprintf(line+offset, " -");
+			// ascii[ascii_offset++] = ' ';
+		}
+		offset += sprintf(line+offset, " %02x", buffer[i] & 0xFF);
+		ascii[ascii_offset++] = PRINTABLE (buffer[i] & 0xFF);
+	}
+	ascii[ascii_offset] = 0;
+	SYS_LOG_DBG("%-60s %s", line, ascii);
+	offset = 0;
+}
+#endif
 
 static inline void *get_sock_vtable(
 			int sock, const struct socket_op_vtable **vtable)
@@ -396,6 +439,8 @@ ssize_t zsock_sendto_ctx(struct net_context *ctx, const void *buf, size_t len,
 	struct net_pkt *send_pkt;
 	s32_t timeout = K_FOREVER;
 
+printk("%s: %d\n", __func__, len);
+pdump(buf,len);
 	if ((flags & ZSOCK_MSG_DONTWAIT) || sock_is_nonblock(ctx)) {
 		timeout = K_NO_WAIT;
 	}
@@ -549,6 +594,7 @@ static inline ssize_t zsock_recv_stream(struct net_context *ctx,
 	s32_t timeout = K_FOREVER;
 	int res;
 
+printk("%s: %d\n", __func__, max_len);
 	if ((flags & ZSOCK_MSG_DONTWAIT) || sock_is_nonblock(ctx)) {
 		timeout = K_NO_WAIT;
 	}
@@ -598,6 +644,7 @@ static inline ssize_t zsock_recv_stream(struct net_context *ctx,
 
 		/* Actually copy data to application buffer */
 		memcpy(buf, frag->data, recv_len);
+		pdump(buf, recv_len);
 
 		if (!(flags & ZSOCK_MSG_PEEK)) {
 			if (recv_len != frag_len) {
