@@ -30,14 +30,12 @@ int mqtt_client_tls_connect(struct mqtt_client *client)
 	struct mqtt_sec_config *tls_config = &client->transport.tls.config;
 	int ret;
 
-printk("11\n");
 	client->transport.tls.sock = socket(broker->sa_family,
 					    SOCK_STREAM, IPPROTO_TLS_1_2);
 	if (client->transport.tls.sock < 0) {
 		return -errno;
 	}
 
-printk("12\n");
 	MQTT_TRC("Created socket %d", client->transport.tls.sock);
 
 	/* Set secure socket options. */
@@ -49,7 +47,6 @@ printk("12\n");
 		goto error;
 	}
 
-printk("13\n");
 	if (tls_config->cipher_list != NULL && tls_config->cipher_count > 0) {
 		ret = setsockopt(client->transport.tls.sock, SOL_TLS,
 				 TLS_CIPHERSUITE_LIST, tls_config->cipher_list,
@@ -59,7 +56,6 @@ printk("13\n");
 		}
 	}
 
-printk("14\n");
 	if (tls_config->seg_tag_list != NULL && tls_config->sec_tag_count > 0) {
 		ret = setsockopt(client->transport.tls.sock, SOL_TLS,
 				 TLS_SEC_TAG_LIST, tls_config->seg_tag_list,
@@ -69,7 +65,6 @@ printk("14\n");
 		}
 	}
 
-printk("15\n");
 	if (tls_config->hostname) {
 		ret = setsockopt(client->transport.tls.sock, SOL_TLS,
 				 TLS_HOSTNAME, tls_config->hostname,
@@ -79,7 +74,6 @@ printk("15\n");
 		}
 	}
 
-printk("16\n");
 	size_t peer_addr_size = sizeof(struct sockaddr_in6);
 
 	if (broker->sa_family == AF_INET) {
@@ -92,12 +86,10 @@ printk("16\n");
 		goto error;
 	}
 
-printk("17\n");
 	MQTT_TRC("Connect completed");
 	return 0;
 
 error:
-printk("18\n");
 	(void)close(client->transport.tls.sock);
 	return -errno;
 }

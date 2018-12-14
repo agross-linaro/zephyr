@@ -22,7 +22,6 @@ pdump(const void *ibuffer, int length)
 	unsigned char *buffer = (unsigned char *)ibuffer;
 	int i;
 
-printk("%s\n", __func__);
 	offset = 0;
 
 	if (length == 0)

@@ -32,6 +32,10 @@
 
 /* mbedTLS feature support */
 
+#define MBEDTLS_HAVE_TIME
+#define MBEDTLS_HAVE_TIME_DATE
+#define MBEDTLS_PLATFORM_TIME_ALT
+
 /* Supported TLS versions */
 #if defined(CONFIG_MBEDTLS_TLS_VERSION_1_0)
 #define MBEDTLS_SSL_PROTO_TLS1

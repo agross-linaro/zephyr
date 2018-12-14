@@ -289,7 +289,6 @@ static int tls_init(struct device *unused)
 	mbedtls_debug_set_threshold(CONFIG_MBEDTLS_DEBUG_LEVEL);
 #endif
 
-printk("DDDDDDDDDDDDDDDDDDDDDDDDDDDD\n");
 	return 0;
 }
 
@@ -336,7 +335,6 @@ static struct tls_context *tls_alloc(void)
 		NET_WARN("Failed to allocate TLS context");
 	}
 
-printk("ALLOC\n");
 	return tls;
 }
 
@@ -771,7 +769,6 @@ static int tls_mbedtls_handshake(struct net_context *context, bool block)
 {
 	int ret;
 
-printk("%s\n", __func__);
 	while ((ret = mbedtls_ssl_handshake(&context->tls->ssl)) != 0) {
 		if (ret == MBEDTLS_ERR_SSL_WANT_READ ||
 		    ret == MBEDTLS_ERR_SSL_WANT_WRITE) {
@@ -958,7 +955,6 @@ static int tls_opt_hostname_set(struct net_context *context,
 
 #if defined(MBEDTLS_X509_CRT_PARSE_C)
 	if ((ret = mbedtls_ssl_set_hostname(&context->tls->ssl, optval)) != 0) {
-printk("WTF %s %x\n", (char *)optval, ret);
 		return -EINVAL;
 	}
 #else
@@ -1204,19 +1200,16 @@ int ztls_connect_ctx(struct net_context *ctx, const struct sockaddr *addr,
 {
 	int ret;
 
-printk("%s\n", __func__);
 
 	if (ctx->tls == NULL) {
 		errno = EBADF;
 		return -1;
 	}
 
-printk("doing vtable connect\n");
 	ret = sock_fd_op_vtable.connect(ctx, addr, addrlen);
 	if (ret < 0) {
 		return ret;
 	}
-printk("ost vtable connect\n");
 
 	if (net_context_get_type(ctx) == SOCK_STREAM) {
 		/* Do the handshake for TLS, not DTLS. */
@@ -1231,12 +1224,10 @@ printk("ost vtable connect\n");
 		/* TODO For simplicity, TLS handshake blocks the socket
 		 * even for non-blocking socket.
 		 */
-printk("blocking\n");
 		ret = tls_mbedtls_handshake(ctx, true);
 		if (ret < 0) {
 			goto error;
 		}
-printk("done blocking\n");
 	} else {
 #if defined(CONFIG_NET_SOCKETS_ENABLE_DTLS)
 		/* Just store the address. */
@@ -1463,7 +1454,6 @@ static ssize_t recv_tls(struct net_context *ctx, void *buf,
 {
 	int ret;
 
-printk("%s\n", __func__);
 	ret = mbedtls_ssl_read(&ctx->tls->ssl, buf, max_len);
 	if (ret >= 0) {
 		return ret;
@@ -1805,43 +1795,34 @@ int ztls_setsockopt_ctx(struct net_context *ctx, int level, int optname,
 {
 	int err;
 
-printk("31\n");
 	if (!ctx->tls) {
 		errno = EBADF;
 		return -1;
 	}
 
-printk("32\n");
 	if (level != SOL_TLS) {
 		return sock_fd_op_vtable.setsockopt(ctx, level, optname,
 						    optval, optlen);
 	}
 
-printk("33\n");
 	switch (optname) {
 	case TLS_SEC_TAG_LIST:
-printk("34\n");
 		err =  tls_opt_sec_tag_list_set(ctx, optval, optlen);
 		break;
 
 	case TLS_HOSTNAME:
-printk("35\n");
 		err = tls_opt_hostname_set(ctx, optval, optlen);
-printk("35-2\n");
 		break;
 
 	case TLS_CIPHERSUITE_LIST:
-printk("36\n");
 		err = tls_opt_ciphersuite_list_set(ctx, optval, optlen);
 		break;
 
 	case TLS_PEER_VERIFY:
-printk("37\n");
 		err = tls_opt_peer_verify_set(ctx, optval, optlen);
 		break;
 
 	case TLS_DTLS_ROLE:
-printk("38\n");
 		err = tls_opt_dtls_role_set(ctx, optval, optlen);
 		break;
 
@@ -1852,7 +1833,6 @@ printk("38\n");
 	}
 
 	if (err < 0) {
-                printk("err\n");
 		errno = -err;
 		return -1;
 	}
@@ -1921,7 +1901,6 @@ static int tls_sock_bind_vmeth(void *obj, const struct sockaddr *addr,
 static int tls_sock_connect_vmeth(void *obj, const struct sockaddr *addr,
 				  socklen_t addrlen)
 {
-printk("%s\n", __func__);
 	return ztls_connect_ctx(obj, addr, addrlen);
 }
 
@@ -1961,7 +1940,6 @@ static int tls_sock_getsockopt_vmeth(void *obj, int level, int optname,
 static int tls_sock_setsockopt_vmeth(void *obj, int level, int optname,
 				     const void *optval, socklen_t optlen)
 {
-printk("22\n");
 	return ztls_setsockopt_ctx(obj, level, optname, optval, optlen);
 }
 

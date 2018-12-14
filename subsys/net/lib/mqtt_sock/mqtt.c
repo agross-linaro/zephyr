@@ -89,7 +89,6 @@ static int client_connect(struct mqtt_client *client)
 	int err_code;
 	struct buf_ctx packet;
 
-printk("1\n");
 	err_code = mqtt_transport_connect(client);
 	if (err_code < 0) {
 		return err_code;
@@ -98,13 +97,11 @@ printk("1\n");
 	tx_buf_init(client, &packet);
 	MQTT_SET_STATE(client, MQTT_STATE_TCP_CONNECTED);
 
-printk("2\n");
 	err_code = connect_request_encode(client, &packet);
 	if (err_code < 0) {
 		goto error;
 	}
 
-printk("3\n");
 	/* Send MQTT identification message to broker. */
 	err_code = mqtt_transport_write(client, packet.cur,
 					packet.end - packet.cur);
@@ -187,7 +184,6 @@ int mqtt_connect(struct mqtt_client *client)
 		goto error;
 	}
 
-printk("%s\n", __func__);
 	err_code = client_connect(client);
 
 error:
