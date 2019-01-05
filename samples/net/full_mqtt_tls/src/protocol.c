@@ -18,6 +18,7 @@
 #include "pdump.h"
 #include <net/tls_credentials.h>
 #include <net/mqtt.h>
+//#include <net/mqtt_legacy_types.h>
 
 #include <mbedtls/platform.h>
 #include <mbedtls/net.h>
@@ -43,6 +44,7 @@ time_t k_time(time_t *ptr);
 extern unsigned char zepfull_private_der[];
 extern unsigned int zepfull_private_der_len;
 
+#if 0
 /*
  * mbed TLS has its own "memory buffer alloc" heap, but it needs some
  * data.  This size can be tuned.
@@ -52,6 +54,7 @@ extern unsigned int zepfull_private_der_len;
 static unsigned char heap[56240];
 #else
 #  error "TODO: no memory buffer configured"
+#endif
 #endif
 
 /*
@@ -64,6 +67,14 @@ static const char client_id[] = CONFIG_CLOUD_CLIENT_ID;
 static const char *subs[] = {
 	CONFIG_CLOUD_SUBSCRIBE_CONFIG,
 };
+
+static struct mqtt_topic topic;
+
+static u8_t token[512];
+static struct pollfd fds[1];
+static int nfds;
+
+static bool connected;
 
 #if 0
 
@@ -413,7 +424,7 @@ static int tls_perform(tls_action action, void *data)
 			return res;
 		}
 
-		struct zsock_pollfd fds[1] = {
+		struct pollfd fds[1] = {
 			[0] = {
 				.fd = sock,
 				.events = events,
@@ -823,8 +834,8 @@ static struct mqtt_client client_ctx;
 static struct sockaddr_storage broker;
 
 /* Buffers for MQTT client. */
-static u8_t rx_buffer[128];
-static u8_t tx_buffer[128];
+static u8_t rx_buffer[1024];
+static u8_t tx_buffer[1024];
 
 static sec_tag_t m_sec_tags[] = {
 #if defined(MBEDTLS_X509_CRT_PARSE_C)
@@ -838,7 +849,111 @@ static sec_tag_t m_sec_tags[] = {
 void mqtt_evt_handler(struct mqtt_client *const client,
 		      const struct mqtt_evt *evt)
 {
+	int err;
 
+	switch (evt->type) {
+	case MQTT_EVT_CONNACK:
+		if (evt->result != 0) {
+			printk("MQTT connect failed %d\n", evt->result);
+			break;
+		}
+
+		connected = true;
+		printk("[%s:%d] MQTT client connected!\n", __func__, __LINE__);
+
+		break;
+
+	case MQTT_EVT_DISCONNECT:
+		printk("[%s:%d] MQTT client disconnected %d\n", __func__,
+		       __LINE__, evt->result);
+
+		connected = false;
+
+		break;
+
+	case MQTT_EVT_PUBACK:
+		if (evt->result != 0) {
+			printk("MQTT PUBACK error %d\n", evt->result);
+			break;
+		}
+
+		printk("[%s:%d] PUBACK packet id: %u\n", __func__, __LINE__,
+				evt->param.puback.message_id);
+
+		break;
+
+	case MQTT_EVT_PUBREC:
+		if (evt->result != 0) {
+			printk("MQTT PUBREC error %d\n", evt->result);
+			break;
+		}
+
+		printk("[%s:%d] PUBREC packet id: %u\n", __func__, __LINE__,
+		       evt->param.pubrec.message_id);
+
+		const struct mqtt_pubrel_param rel_param = {
+			.message_id = evt->param.pubrec.message_id
+		};
+
+		err = mqtt_publish_qos2_release(client, &rel_param);
+		if (err != 0) {
+			printk("Failed to send MQTT PUBREL: %d\n", err);
+		}
+
+		break;
+
+	case MQTT_EVT_PUBCOMP:
+		if (evt->result != 0) {
+			printk("MQTT PUBCOMP error %d\n", evt->result);
+			break;
+		}
+
+		printk("[%s:%d] PUBCOMP packet id: %u\n", __func__, __LINE__,
+		       evt->param.pubcomp.message_id);
+
+		break;
+
+	default:
+		break;
+	}
+}
+
+static u8_t NAME_FOO[] = "none";
+
+static int wait_for_input(int timeout)
+{
+	int res;
+	struct zsock_pollfd fds[1] = {
+		[0] = {.fd = client_ctx.transport.tls.sock,
+		      .events = ZSOCK_POLLIN,
+		      .revents = 0},
+	};
+
+	res = zsock_poll(fds, 1, timeout);
+	if (res < 0 ) {
+		SYS_LOG_ERR("poll read event error\n");
+		return -errno;
+	}
+
+	return 0;
+}
+
+static int wait_for_output(int timeout)
+{
+	int res;
+	struct zsock_pollfd fds[1] = {
+		[0] = {.fd = client_ctx.transport.tls.sock,
+		      .events = ZSOCK_POLLOUT,
+		      .revents = 0, },
+	};
+
+	res = poll(fds, 1, timeout);
+	if (res < 0 ) {
+		SYS_LOG_ERR("poll read event error\n");
+		return -errno;
+	}
+
+	return 0;
 }
 
 void mqtt_startup(const char *hostname, struct zsock_addrinfo *host, int port)
@@ -847,6 +962,17 @@ void mqtt_startup(const char *hostname, struct zsock_addrinfo *host, int port)
 	struct sockaddr_in *broker4 = (struct sockaddr_in *)&broker;
 	char foo[32];
 	struct mqtt_client *client = &client_ctx;
+	struct jwt_builder jb;
+	struct mqtt_subscription_list subs_list;
+	int res = 0;
+	struct mqtt_utf8 password = {
+		.utf8 = token
+	};
+	struct mqtt_utf8 username = {
+		.utf8 = NAME_FOO,
+		.size = strlen(NAME_FOO)
+	};
+
 
 printk("%s\n", __func__);
 #if defined(CONFIG_MQTT_LIB_TLS)
@@ -863,22 +989,44 @@ printk("%s\n", __func__);
 
 	mqtt_client_init(client);
 
+	time_t now = k_time(NULL);
+
+	res = jwt_init_builder(&jb, token, sizeof(token));
+	if (res != 0) {
+		SYS_LOG_ERR("Error with JWT token");
+		return;
+	}
+
+	res = jwt_add_payload(&jb, now + 60 * 60, now,
+			      CONFIG_CLOUD_AUDIENCE);
+	if (res != 0) {
+		SYS_LOG_ERR("Error with JWT token");
+		return;
+	}
+
+	res = jwt_sign(&jb, zepfull_private_der, zepfull_private_der_len);
+
+	if (res != 0) {
+		SYS_LOG_ERR("Error with JWT token");
+		return;
+	}
+
+
 printk("after client init\n");
 
 	broker4->sin_family = AF_INET;
 	broker4->sin_port = htons(port);
 	net_ipaddr_copy(&broker4->sin_addr, &net_sin(host->ai_addr)->sin_addr);
-//	inet_pton(AF_INET, "206.181.100.64", &broker4->sin_addr);
-//	inet_pton(AF_INET, "64.181.233.206", &broker4->sin_addr);
-printk("client id %s\n", client_id);
 
 	/* MQTT client configuration */
 	client->broker = &broker;
 	client->evt_cb = mqtt_evt_handler;
 	client->client_id.utf8 = (u8_t *)client_id;
 	client->client_id.size = strlen(client_id);
-	client->password = NULL;
-	client->user_name = NULL;
+	client->password = &password;
+	password.size = jwt_payload_len(&jb);
+//	client->password = NULL;
+	client->user_name = &username;
 	client->protocol_version = MQTT_VERSION_3_1_1;
 
 	/* MQTT buffers configuration */
@@ -888,7 +1036,6 @@ printk("client id %s\n", client_id);
 	client->tx_buf_size = sizeof(tx_buffer);
 
 	/* MQTT transport configuration */
-#if defined(CONFIG_MQTT_LIB_TLS)
 	client->transport.type = MQTT_TRANSPORT_SECURE;
 
 	struct mqtt_sec_config *tls_config = &client->transport.tls.config;
@@ -903,14 +1050,39 @@ printk("client id %s\n", client_id);
 	tls_config->hostname = NULL;
 #endif
 
-#else
-	client->transport.type = MQTT_TRANSPORT_NON_SECURE;
-#endif
+	printk("Connecting to host: %s\n", hostname);
 
 	err = mqtt_connect(client);
 	if (err != 0) {
 		SYS_LOG_ERR("could not connect\n");
 	}
 
-	printk("got somewhere\n");
-}
+	wait_for_input(10000);
+	mqtt_input(client);
+
+	subs_list.list = &topic;
+	subs_list.list_count = 1;
+	subs_list.message_id = 1;
+	topic.topic.utf8 = subs[0];
+	topic.topic.size = strlen(subs[0]);
+	topic.qos = MQTT_QOS_1_AT_LEAST_ONCE;
+
+	/* topics is defined in private_info/client_info.c */
+	err = mqtt_subscribe(client, &subs_list);
+	if (err != 0) {
+		SYS_LOG_ERR("could not subscribe\n");
+	}
+
+	wait_for_input(10000);
+	mqtt_input(client);
+
+	mqtt_ping(client);
+	wait_for_input(10000);
+	mqtt_input(client);
+
+	mqtt_disconnect(client);
+	wait_for_input(10000);
+	mqtt_input(client);
+
+	printk("\nBye\n");
+};
