@@ -439,8 +439,6 @@ ssize_t zsock_sendto_ctx(struct net_context *ctx, const void *buf, size_t len,
 	struct net_pkt *send_pkt;
 	s32_t timeout = K_FOREVER;
 
-printk("%s: %d\n", __func__, len);
-pdump(buf,len);
 	if ((flags & ZSOCK_MSG_DONTWAIT) || sock_is_nonblock(ctx)) {
 		timeout = K_NO_WAIT;
 	}
@@ -594,7 +592,6 @@ static inline ssize_t zsock_recv_stream(struct net_context *ctx,
 	s32_t timeout = K_FOREVER;
 	int res;
 
-printk("%s: %d\n", __func__, max_len);
 	if ((flags & ZSOCK_MSG_DONTWAIT) || sock_is_nonblock(ctx)) {
 		timeout = K_NO_WAIT;
 	}
@@ -644,7 +641,7 @@ printk("%s: %d\n", __func__, max_len);
 
 		/* Actually copy data to application buffer */
 		memcpy(buf, frag->data, recv_len);
-		pdump(buf, recv_len);
+//		pdump(buf, recv_len);
 
 		if (!(flags & ZSOCK_MSG_PEEK)) {
 			if (recv_len != frag_len) {

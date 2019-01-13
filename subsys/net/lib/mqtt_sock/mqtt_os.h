@@ -35,6 +35,8 @@ extern "C" {
 /**@brief Method to error logs from the module. */
 #define MQTT_ERR(...) NET_ERR(__VA_ARGS__)
 
+#define MQTT_INF(...) NET_INFO(__VA_ARGS__)
+
 /**@brief Initialize the mutex for the module, if any.
  *
  * @details This method is called during module initialization @ref mqtt_init.

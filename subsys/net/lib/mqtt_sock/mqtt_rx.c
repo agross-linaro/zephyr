@@ -30,12 +30,12 @@ static int mqtt_handle_packet(struct mqtt_client *client,
 
 	switch (type_and_flags & 0xF0) {
 	case MQTT_PKT_TYPE_CONNACK:
-		MQTT_TRC("[CID %p]: Received MQTT_PKT_TYPE_CONNACK!", client);
+		MQTT_INF("[CID %p]: Received MQTT_PKT_TYPE_CONNACK!", client);
 
 		evt.type = MQTT_EVT_CONNACK;
 		err_code = connect_ack_decode(client, buf, &evt.param.connack);
 		if (err_code == 0) {
-			MQTT_TRC("[CID %p]: return_code: %d", client,
+			MQTT_INF("[CID %p]: return_code: %d", client,
 				 evt.param.connack.return_code);
 
 			if (evt.param.connack.return_code ==
@@ -52,7 +52,7 @@ static int mqtt_handle_packet(struct mqtt_client *client,
 		break;
 
 	case MQTT_PKT_TYPE_PUBLISH:
-		MQTT_TRC("[CID %p]: Received MQTT_PKT_TYPE_PUBLISH", client);
+		MQTT_INF("[CID %p]: Received MQTT_PKT_TYPE_PUBLISH", client);
 
 		evt.type = MQTT_EVT_PUBLISH;
 		err_code = publish_decode(type_and_flags, var_length, buf,
@@ -62,7 +62,7 @@ static int mqtt_handle_packet(struct mqtt_client *client,
 		client->internal.remaining_payload =
 					evt.param.publish.message.payload.len;
 
-		MQTT_TRC("PUB QoS:%02x, message len %08x, topic len %08x",
+		MQTT_INF("PUB QoS:%02x, message len %08x, topic len %08x",
 			 evt.param.publish.message.topic.qos,
 			 evt.param.publish.message.payload.len,
 			 evt.param.publish.message.topic.topic.size);
@@ -70,7 +70,7 @@ static int mqtt_handle_packet(struct mqtt_client *client,
 		break;
 
 	case MQTT_PKT_TYPE_PUBACK:
-		MQTT_TRC("[CID %p]: Received MQTT_PKT_TYPE_PUBACK!", client);
+		MQTT_INF("[CID %p]: Received MQTT_PKT_TYPE_PUBACK!", client);
 
 		evt.type = MQTT_EVT_PUBACK;
 		err_code = publish_ack_decode(buf, &evt.param.puback);
@@ -78,7 +78,7 @@ static int mqtt_handle_packet(struct mqtt_client *client,
 		break;
 
 	case MQTT_PKT_TYPE_PUBREC:
-		MQTT_TRC("[CID %p]: Received MQTT_PKT_TYPE_PUBREC!", client);
+		MQTT_INF("[CID %p]: Received MQTT_PKT_TYPE_PUBREC!", client);
 
 		evt.type = MQTT_EVT_PUBREC;
 		err_code = publish_receive_decode(buf, &evt.param.pubrec);
@@ -86,7 +86,7 @@ static int mqtt_handle_packet(struct mqtt_client *client,
 		break;
 
 	case MQTT_PKT_TYPE_PUBREL:
-		MQTT_TRC("[CID %p]: Received MQTT_PKT_TYPE_PUBREL!", client);
+		MQTT_INF("[CID %p]: Received MQTT_PKT_TYPE_PUBREL!", client);
 
 		evt.type = MQTT_EVT_PUBREL;
 		err_code = publish_release_decode(buf, &evt.param.pubrel);
@@ -94,7 +94,7 @@ static int mqtt_handle_packet(struct mqtt_client *client,
 		break;
 
 	case MQTT_PKT_TYPE_PUBCOMP:
-		MQTT_TRC("[CID %p]: Received MQTT_PKT_TYPE_PUBCOMP!", client);
+		MQTT_INF("[CID %p]: Received MQTT_PKT_TYPE_PUBCOMP!", client);
 
 		evt.type = MQTT_EVT_PUBCOMP;
 		err_code = publish_complete_decode(buf, &evt.param.pubcomp);
@@ -102,7 +102,7 @@ static int mqtt_handle_packet(struct mqtt_client *client,
 		break;
 
 	case MQTT_PKT_TYPE_SUBACK:
-		MQTT_TRC("[CID %p]: Received MQTT_PKT_TYPE_SUBACK!", client);
+		MQTT_INF("[CID %p]: Received MQTT_PKT_TYPE_SUBACK!", client);
 
 		evt.type = MQTT_EVT_SUBACK;
 		err_code = subscribe_ack_decode(buf, &evt.param.suback);
@@ -110,7 +110,7 @@ static int mqtt_handle_packet(struct mqtt_client *client,
 		break;
 
 	case MQTT_PKT_TYPE_UNSUBACK:
-		MQTT_TRC("[CID %p]: Received MQTT_PKT_TYPE_UNSUBACK!", client);
+		MQTT_INF("[CID %p]: Received MQTT_PKT_TYPE_UNSUBACK!", client);
 
 		evt.type = MQTT_EVT_UNSUBACK;
 		err_code = unsubscribe_ack_decode(buf, &evt.param.unsuback);
@@ -118,7 +118,7 @@ static int mqtt_handle_packet(struct mqtt_client *client,
 		break;
 
 	case MQTT_PKT_TYPE_PINGRSP:
-		MQTT_TRC("[CID %p]: Received MQTT_PKT_TYPE_PINGRSP!", client);
+		MQTT_INF("[CID %p]: Received MQTT_PKT_TYPE_PINGRSP!", client);
 
 		/* No notification of Ping response to application. */
 		notify_event = false;
