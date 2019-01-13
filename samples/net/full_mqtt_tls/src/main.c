@@ -6,10 +6,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#define SYS_LOG_LEVEL SYS_LOG_LEVEL_DEBUG
+#include <logging/log.h>
+
+LOG_MODULE_REGISTER(net_full_mqtt_tls_sample, LOG_LEVEL_INF);
 
 #include <zephyr.h>
-#include <logging/sys_log.h>
 
 #include "dhcp.h"
 #include "protocol.h"
@@ -43,24 +44,24 @@ void resp_callback(struct sntp_ctx *ctx,
 	int64_t stamp;
 
 	stamp = k_uptime_get();
-	SYS_LOG_INF("stamp: %lld", stamp);
-	SYS_LOG_INF("time: %lld", epoch_time);
-	SYS_LOG_INF("time1k: %lld", epoch_time * MSEC_PER_SEC);
+	LOG_INF("stamp: %lld", stamp);
+	LOG_INF("time: %lld", epoch_time);
+	LOG_INF("time1k: %lld", epoch_time * MSEC_PER_SEC);
 	time_base = epoch_time * MSEC_PER_SEC - stamp;
-	SYS_LOG_INF("base: %lld", time_base);
-	SYS_LOG_INF("status: %d", status);
+	LOG_INF("base: %lld", time_base);
+	LOG_INF("status: %d", status);
 
 	/* Convert time to make sure. */
 	time_t now = epoch_time;
 	struct tm now_tm;
 
 	gmtime_r(&now, &now_tm);
-	SYS_LOG_INF("  year: %d", now_tm.tm_year);
-	SYS_LOG_INF("  mon : %d", now_tm.tm_mon);
-	SYS_LOG_INF("  day : %d", now_tm.tm_mday);
-	SYS_LOG_INF("  hour: %d", now_tm.tm_hour);
-	SYS_LOG_INF("  min : %d", now_tm.tm_min);
-	SYS_LOG_INF("  sec : %d", now_tm.tm_sec);
+	LOG_INF("  year: %d", now_tm.tm_year);
+	LOG_INF("  mon : %d", now_tm.tm_mon);
+	LOG_INF("  day : %d", now_tm.tm_mday);
+	LOG_INF("  hour: %d", now_tm.tm_hour);
+	LOG_INF("  min : %d", now_tm.tm_min);
+	LOG_INF("  sec : %d", now_tm.tm_sec);
 
 	k_sem_give(&sem);
 }
@@ -100,13 +101,13 @@ void sntp(const char *ip)
 		       SNTP_PORT,
 		       K_FOREVER);
 	if (rc < 0) {
-		SYS_LOG_ERR("Unable to init sntp context: %d", rc);
+		LOG_ERR("Unable to init sntp context: %d", rc);
 		return;
 	}
 
 	rc = sntp_request(&ctx, K_FOREVER, resp_callback, NULL);
 	if (rc < 0) {
-		SYS_LOG_ERR("Failed to send sntp request: %d", rc);
+		LOG_ERR("Failed to send sntp request: %d", rc);
 		return;
 	}
 
@@ -114,7 +115,7 @@ void sntp(const char *ip)
 	k_sem_take(&sem, K_FOREVER);
 	sntp_close(&ctx);
 
-	SYS_LOG_INF("done");
+	LOG_INF("done");
 }
 
 /*
@@ -125,27 +126,27 @@ void sntp(const char *ip)
 static void show_addrinfo(struct zsock_addrinfo *addr)
 {
         char hr_addr[NET_IPV6_ADDR_LEN];
-        char *hr_family;
         void *a;
 
 top:
-	SYS_LOG_INF("  flags   : %d", addr->ai_flags);
-	SYS_LOG_INF("  family  : %d", addr->ai_family);
-	SYS_LOG_INF("  socktype: %d", addr->ai_socktype);
-	SYS_LOG_INF("  protocol: %d", addr->ai_protocol);
-	SYS_LOG_INF("  addrlen : %d", addr->ai_addrlen);
+	LOG_DBG("  flags   : %d", addr->ai_flags);
+	LOG_DBG("  family  : %d", addr->ai_family);
+	LOG_DBG("  socktype: %d", addr->ai_socktype);
+	LOG_DBG("  protocol: %d", addr->ai_protocol);
+	LOG_DBG("  addrlen : %d", addr->ai_addrlen);
 
 	/* Assume two words. */
-	SYS_LOG_INF("   addr[0]: 0x%lx", ((uint32_t *)addr->ai_addr)[0]);
-	SYS_LOG_INF("   addr[1]: 0x%lx", ((uint32_t *)addr->ai_addr)[1]);
+	LOG_DBG("   addr[0]: 0x%lx", ((uint32_t *)addr->ai_addr)[0]);
+	LOG_DBG("   addr[1]: 0x%lx", ((uint32_t *)addr->ai_addr)[1]);
 
 	if (addr->ai_next != 0) {
 		addr = addr->ai_next;
 		goto top;
 	}
-        a = &net_sin(&addr->ai_addr)->sin_addr;
 
-        SYS_LOG_ERR("%s",
+        a = &net_sin(addr->ai_addr)->sin_addr;
+
+        LOG_INF("%s",
                 log_strdup(net_addr_ntop(addr->ai_family, a,
                                          hr_addr, sizeof(hr_addr))));
 
@@ -170,11 +171,11 @@ void main(void)
 	int res;
 	int cnt = 0;
 
-	SYS_LOG_INF("Main entered");
+	LOG_INF("Main entered");
 
 	app_dhcpv4_startup();
 
-	SYS_LOG_INF("Should have DHCPv4 lease at this point.");
+	LOG_INF("Should have DHCPv4 lease at this point.");
 
 	hints.ai_family = AF_INET;
 	hints.ai_socktype = SOCK_DGRAM;
@@ -182,9 +183,10 @@ void main(void)
 	res = getaddrinfo("time.google.com", "123", &hints, &haddr);
 
 	if (res != 0) {
-		SYS_LOG_ERR("Unable to get address, exiting %d", res);
+		LOG_ERR("Unable to get address, exiting %d", res);
 		return;
 	}
+
 
 	inet_ntop(AF_INET, &net_sin(haddr->ai_addr)->sin_addr, time_ip,
 			haddr->ai_addrlen);
@@ -194,7 +196,7 @@ void main(void)
 	/* TODO: Convert sntp to sockets with newer API. */
 	sntp(time_ip);
 
-	SYS_LOG_INF("sntp finished");
+	LOG_INF("sntp time acquired");
 	/* After setting the time, spin periodically, and make sure
 	 * the system clock keeps up reasonably.
 	 */
@@ -209,15 +211,15 @@ void main(void)
 		gmtime_r(&now, &tm);
 		c = k_cycle_get_32();
 
-		SYS_LOG_INF("time %d-%d-%d %d:%d:%d",
+		LOG_INF("time %d-%d-%d %d:%d:%d",
 			    tm.tm_year + 1900,
 			    tm.tm_mon + 1,
 			    tm.tm_mday,
 			    tm.tm_hour,
 			    tm.tm_min,
 			    tm.tm_sec);
-		SYS_LOG_INF("time k_time(): %lu", b - a);
-		SYS_LOG_INF("time gmtime_r(): %lu", c - b);
+		LOG_INF("time k_time(): %lu", b - a);
+		LOG_INF("time gmtime_r(): %lu", c - b);
 
 		k_sleep(990);
 	}
@@ -227,14 +229,15 @@ void main(void)
 	hints.ai_protocol = 0;
 	while ((res = getaddrinfo("mqtt.googleapis.com", "8883", &hints,
 				  &haddr)) && cnt < 3) {
-		SYS_LOG_ERR("Unable to get address, retrying");
+		LOG_ERR("Unable to get address, retrying");
 		cnt++;
 	}
 
 	if (res != 0) {
-		SYS_LOG_ERR("Unable to get address, exiting with error %d", res);
-		return res;
+		LOG_ERR("Unable to get address, exiting with error %d", res);
+		return;
 	}
+	LOG_INF("DNS resolved for mqtt.googleapis.com:8833");
 	show_addrinfo(haddr);
 
 

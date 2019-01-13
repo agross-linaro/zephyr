@@ -6,10 +6,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#define SYS_LOG_LEVEL SYS_LOG_LEVEL_DEBUG
+#include <logging/log.h>
+
+LOG_MODULE_DECLARE(net_full_mqtt_tls_sample, LOG_LEVEL_DBG);
 
 #include <zephyr.h>
-#include <logging/sys_log.h>
 
 #include <net/net_if.h>
 #include <net/net_core.h>
@@ -33,30 +34,11 @@ static void handler(struct net_mgmt_event_callback *cb,
 	}
 
 	for (i = 0; i < NET_IF_MAX_IPV4_ADDR; i++) {
-		char buf[NET_IPV4_ADDR_LEN];
 
 		if (iface->config.ip.ipv4->unicast[i].addr_type !=
 		    NET_ADDR_DHCP) {
 			continue;
 		}
-
-		/* TODO: IPv6 can get addresses through
-		 * NET_ADDR_AUTOCONF. */
-
-		SYS_LOG_INF("Your address: %s",
-			    net_addr_ntop(AF_INET,
-					  &iface->config.ip.ipv4->unicast[i].address.in_addr,
-					  buf, sizeof(buf)));
-
-		SYS_LOG_INF("netmask: %s",
-			    net_addr_ntop(AF_INET,
-			    &iface->config.ip.ipv4->netmask,
-			    buf, sizeof(buf)));
-
-		SYS_LOG_INF("gateway: %s",
-			    net_addr_ntop(AF_INET,
-			    &iface->config.ip.ipv4->gw,
-			    buf, sizeof(buf)));
 
 		if (!notified) {
 			k_sem_give(&got_address);
@@ -72,7 +54,7 @@ static void handler(struct net_mgmt_event_callback *cb,
 void app_dhcpv4_startup(void)
 {
 	struct net_if *iface;
-	SYS_LOG_INF("starting DHCPv4");
+	LOG_INF("starting DHCPv4");
 
 	net_mgmt_init_event_callback(&mgmt_cb, handler,
 				     NET_EVENT_IPV4_ADDR_ADD);
